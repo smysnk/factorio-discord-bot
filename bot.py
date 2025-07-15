@@ -136,8 +136,8 @@ class FactorioBot(commands.Bot):
         ssh.close()
 
     # Discord commands
-    @commands.command()
-    async def start(self, ctx: commands.Context, name: Optional[str] = None):
+    @commands.command(name="start")
+    async def start_server(self, ctx: commands.Context, name: Optional[str] = None):
         if ctx.channel.id != self.channel_id:
             return
         await ctx.send("Checking for existing server...")
@@ -189,7 +189,7 @@ def main():
     template = os.getenv("EC2_TEMPLATE", "ec2_template.json")
     bot = FactorioBot(template)
     token = os.getenv("DISCORD_TOKEN")
-    bot.add_command(bot.start)
+    bot.add_command(bot.start_server)
     bot.add_command(bot.stop)
     bot.add_command(bot.list)
     bot.add_command(bot.status)
