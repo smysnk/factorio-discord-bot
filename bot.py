@@ -4,6 +4,10 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import boto3  # type: ignore
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
