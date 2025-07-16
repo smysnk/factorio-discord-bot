@@ -1,6 +1,6 @@
 # Factorio Discord Bot
 
-This project contains a simple Discord bot that can manage a Factorio game server hosted on AWS EC2. The bot relies on `discord.py`, `boto3`, `paramiko` and `python-dotenv`. These dependencies must be installed in your environment along with valid AWS and Discord credentials stored in a `.env` file.
+This project contains a simple Discord bot that can manage a Factorio game server hosted on AWS EC2. The bot is implemented in **Node.js** using `discord.js`, the AWS SDK, `ssh2` and `dotenv`. These dependencies must be installed in your environment along with valid AWS and Discord credentials stored in a `.env` file.
 
 ## Configuration
 
@@ -10,11 +10,11 @@ This project contains a simple Discord bot that can manage a Factorio game serve
 
 ## Running the Bot
 
-Install the required packages and run `bot.py`:
+Install the required packages and run `bot.js`:
 
 ```bash
-pip install -r requirements.txt
-python bot.py
+npm install
+node bot.js
 ```
 
 The bot listens for commands in the channel specified by `DISCORD_CHANNEL_ID`.

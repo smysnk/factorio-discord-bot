@@ -1,4 +1,0 @@
-discord.py
-boto3
-paramiko
-python-dotenv
