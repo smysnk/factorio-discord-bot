@@ -17,4 +17,6 @@ npm install
 node bot.js
 ```
 
-The bot listens for commands in the channel specified by `DISCORD_CHANNEL_ID`.
+The bot uses slash commands which are registered automatically on startup.
+Use `DISCORD_CHANNEL_ID` to restrict the channel and `DISCORD_GUILD_ID` to limit
+registration to a single guild.

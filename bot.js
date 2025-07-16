@@ -1,6 +1,11 @@
 require('dotenv').config();
 const fs = require('fs');
-const { Client, GatewayIntentBits } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  Events
+} = require('discord.js');
 const {
   EC2Client,
   DescribeInstancesCommand,
@@ -29,13 +34,33 @@ const ec2 = new EC2Client(awsConfig);
 const s3 = new S3Client(awsConfig);
 
 const channelId = process.env.DISCORD_CHANNEL_ID;
+const guildId = process.env.DISCORD_GUILD_ID;
 let instanceId = null;
 let backupName = null;
 
-const bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-bot.once('ready', () => {
+const commands = [
+  new SlashCommandBuilder().setName('start').setDescription('Start the Factorio server'),
+  new SlashCommandBuilder().setName('stop').setDescription('Stop the Factorio server'),
+  new SlashCommandBuilder().setName('list').setDescription('List available backups'),
+  new SlashCommandBuilder().setName('status').setDescription('Get server status'),
+  new SlashCommandBuilder()
+    .setName('name')
+    .setDescription('Set backup name')
+    .addStringOption(option =>
+      option.setName('backup').setDescription('Backup name').setAutocomplete(true).setRequired(true)
+    )
+];
+
+bot.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${bot.user.tag}`);
+  const data = commands.map(c => c.toJSON());
+  if (guildId) {
+    await bot.application.commands.set(data, guildId);
+  } else {
+    await bot.application.commands.set(data);
+  }
 });
 
 async function findRunningInstance() {
@@ -131,51 +156,66 @@ async function listBackups() {
   return (resp.Contents || []).map(o => o.Key);
 }
 
-bot.on('messageCreate', async (msg) => {
-  if (msg.channel.id !== channelId) return;
-  if (!msg.content.startsWith('!')) return;
-  const args = msg.content.slice(1).split(/\s+/);
-  const command = args.shift().toLowerCase();
+bot.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.channelId !== channelId) return;
+
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === 'name') {
+      const focused = interaction.options.getFocused();
+      const backups = await listBackups();
+      const filtered = backups.filter(b => b.startsWith(focused)).slice(0, 25);
+      await interaction.respond(filtered.map(b => ({ name: b, value: b })));
+    }
+    return;
+  }
+
+  if (!interaction.isChatInputCommand()) return;
+
   try {
-    if (command === 'start') {
-      await msg.channel.send('Checking for existing server...');
+    if (interaction.commandName === 'start') {
+      await interaction.reply('Checking for existing server...');
       const existing = await findRunningInstance();
       if (existing) {
-        await msg.channel.send('Server already running');
+        await interaction.followUp('Server already running');
         return;
       }
-      await msg.channel.send('Launching EC2 instance...');
+      await interaction.followUp('Launching EC2 instance...');
       const sgId = await createSecurityGroup();
       instanceId = await launchInstance(sgId);
       const ip = await waitForInstance(instanceId);
-      await msg.channel.send(`Instance launched with IP ${ip}, installing docker...`);
+      await interaction.followUp(`Instance launched with IP ${ip}, installing docker...`);
       await sshAndSetup(ip);
-      await msg.channel.send(`Factorio server running at ${ip}`);
-    } else if (command === 'stop') {
-      if (!instanceId) return;
-      await msg.channel.send('Stopping server...');
+      await interaction.followUp(`Factorio server running at ${ip}`);
+    } else if (interaction.commandName === 'stop') {
+      if (!instanceId) {
+        await interaction.reply('No running server');
+        return;
+      }
+      await interaction.reply('Stopping server...');
       await ec2.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }));
       instanceId = null;
-      await msg.channel.send('Server terminated');
-    } else if (command === 'list') {
+      await interaction.followUp('Server terminated');
+    } else if (interaction.commandName === 'list') {
       const backups = await listBackups();
-      await msg.channel.send('Available backups: ' + backups.join(', '));
-    } else if (command === 'status') {
+      await interaction.reply('Available backups: ' + backups.join(', '));
+    } else if (interaction.commandName === 'status') {
       const inst = await findRunningInstance();
       if (inst) {
-        await msg.channel.send(`Server running: ${inst}`);
+        await interaction.reply(`Server running: ${inst}`);
       } else {
-        await msg.channel.send('No running servers');
+        await interaction.reply('No running servers');
       }
-    } else if (command === 'name') {
-      if (instanceId && args[0]) {
-        backupName = args[0];
-        await msg.channel.send(`Backup name set to ${backupName}`);
-      }
+    } else if (interaction.commandName === 'name') {
+      backupName = interaction.options.getString('backup');
+      await interaction.reply(`Backup name set to ${backupName}`);
     }
   } catch (err) {
     console.error(err);
-    await msg.channel.send('Error: ' + err.message);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: 'Error: ' + err.message, ephemeral: true });
+    } else {
+      await interaction.reply({ content: 'Error: ' + err.message, ephemeral: true });
+    }
   }
 });
 
