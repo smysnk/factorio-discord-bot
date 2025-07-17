@@ -15,23 +15,23 @@ module.exports = {
     await interaction.respond(filtered.map(n => ({ name: n, value: n })));
   },
   async execute(interaction) {
-    await interaction.reply('Checking for existing server...');
+    await lib.sendReply(interaction, 'Checking for existing server...');
     const existing = await lib.findRunningInstance();
     if (existing) {
-      await interaction.followUp('Server already running');
+      await lib.sendFollowUp(interaction, 'Server already running');
       return;
     }
     const saveLabel = interaction.options.getString('name');
-    await interaction.followUp('Launching EC2 instance...');
+    await lib.sendFollowUp(interaction, 'Launching EC2 instance...');
     const sgId = await lib.ensureSecurityGroup();
     const id = await lib.launchInstance(sgId, saveLabel);
     lib.state.instanceId = id;
     const ip = await lib.waitForInstance(id);
     const backupFile = saveLabel ? await lib.getLatestBackupFile(saveLabel) : null;
-    await interaction.followUp(
+    await lib.sendFollowUp(
       `Instance launched with IP ${ip}${backupFile ? ', restoring backup...' : ', installing docker...'}`
     );
     await lib.sshAndSetup(ip, backupFile);
-    await interaction.followUp(`Factorio server running at ${ip}`);
+    await lib.sendFollowUp(interaction, `Factorio server running at ${ip}`);
   }
 };

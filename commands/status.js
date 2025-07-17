@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { template, findRunningInstance, getSystemStats, formatMetadata } = require('../lib');
+const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder().setName('status').setDescription('Get server status'),
@@ -20,9 +20,9 @@ module.exports = {
         'Disk /opt/factorio': stats.disk
       };
       const table = formatMetadata(meta);
-      await interaction.reply(table || 'No data');
+      await sendReply(interaction, table || 'No data');
     } else {
-      await interaction.reply('No running servers');
+      await sendReply(interaction, 'No running servers');
     }
   }
 };

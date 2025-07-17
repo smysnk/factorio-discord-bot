@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { ec2, findRunningInstance, sshExec, backupCommands, CreateTagsCommand } = require('../lib');
+const { ec2, findRunningInstance, sshExec, backupCommands, CreateTagsCommand, sendReply, sendFollowUp } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -18,16 +18,16 @@ module.exports = {
   async execute(interaction) {
     const inst = await findRunningInstance();
     if (!inst) {
-      await interaction.reply('No running server');
+      await sendReply(interaction, 'No running server');
       return;
     }
     const name = interaction.options.getString('name');
     const ip = inst.PublicIpAddress;
     await ec2.send(new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] }));
-    await interaction.reply(`Saving as ${name}...`);
+    await sendReply(interaction, `Saving as ${name}...`);
     if (ip) {
       await sshExec(ip, backupCommands(name));
     }
-    await interaction.followUp('Save complete');
+    await sendFollowUp(interaction, 'Save complete');
   }
 };

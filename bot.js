@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { sendReply, sendFollowUp } = require('./lib');
 const path = require('path');
 
 const channelId = process.env.DISCORD_CHANNEL_ID;
@@ -45,10 +46,11 @@ bot.on(Events.InteractionCreate, async interaction => {
     await command.execute(interaction);
   } catch (err) {
     console.error(err);
+    const msg = 'Error: ' + err.message;
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: 'Error: ' + err.message, ephemeral: true });
+      await sendFollowUp(interaction, msg, { ephemeral: true });
     } else {
-      await interaction.reply({ content: 'Error: ' + err.message, ephemeral: true });
+      await sendReply(interaction, msg, { ephemeral: true });
     }
   }
 });

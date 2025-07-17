@@ -238,18 +238,9 @@ function formatMetadata(metadata) {
   if (!metadata || Object.keys(metadata).length === 0) {
     return undefined;
   }
-  const rows = flattenMetadata(metadata).map(([k, v]) => [k, formatValue(v)]);
-  const headers = ['Key', 'Value'];
-  const col1 = Math.max(headers[0].length, ...rows.map(r => r[0].length));
-  const col2 = Math.max(headers[1].length, ...rows.map(r => r[1].length));
-  const sep = `+${'-'.repeat(col1 + 2)}+${'-'.repeat(col2 + 2)}+`;
-  const lines = [
-    sep,
-    `| ${headers[0].padEnd(col1)} | ${headers[1].padEnd(col2)} |`,
-    sep,
-    ...rows.map(r => `| ${r[0].padEnd(col1)} | ${r[1].padEnd(col2)} |`),
-    sep,
-  ];
+  const lines = flattenMetadata(metadata).map(
+    ([k, v]) => `${k}: ${formatValue(v)}`
+  );
   return '```\n' + lines.join('\n') + '\n```';
 }
 
@@ -333,6 +324,50 @@ async function getSystemStats(ip) {
   }
 }
 
+function splitMessage(text, limit = 2000) {
+  if (text.length <= limit) return [text];
+  let wrap = false;
+  if (text.startsWith('```') && text.endsWith('```')) {
+    wrap = true;
+    text = text.slice(3, -3).trim();
+    limit -= 6;
+  }
+  const lines = text.split('\n');
+  const chunks = [];
+  let buf = '';
+  for (const line of lines) {
+    if ((buf + line + '\n').length > limit) {
+      chunks.push(buf.trimEnd());
+      buf = '';
+    }
+    buf += line + '\n';
+  }
+  if (buf) chunks.push(buf.trimEnd());
+  return wrap ? chunks.map(c => '```\n' + c + '\n```') : chunks;
+}
+
+async function sendDiscordMessage(interaction, method, content, options = {}) {
+  if (typeof content !== 'string') {
+    await interaction[method](content);
+    return;
+  }
+  const parts = splitMessage(content);
+  for (let i = 0; i < parts.length; i++) {
+    const payload = { ...options, content: parts[i] };
+    if (i === 0) {
+      await interaction[method](payload);
+    } else {
+      await interaction.followUp(payload);
+    }
+  }
+}
+
+const sendReply = (interaction, content, options) =>
+  sendDiscordMessage(interaction, 'reply', content, options);
+
+const sendFollowUp = (interaction, content, options) =>
+  sendDiscordMessage(interaction, 'followUp', content, options);
+
 module.exports = {
   ec2,
   s3,
@@ -353,5 +388,7 @@ module.exports = {
   getSystemStats,
   CreateTagsCommand,
   DescribeInstancesCommand,
-  TerminateInstancesCommand
+  TerminateInstancesCommand,
+  sendReply,
+  sendFollowUp
 };
