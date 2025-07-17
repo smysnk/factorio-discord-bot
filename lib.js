@@ -362,8 +362,15 @@ async function sendDiscordMessage(interaction, method, content, options = {}) {
   }
 }
 
-const sendReply = (interaction, content, options) =>
-  sendDiscordMessage(interaction, 'reply', content, options);
+function sendReply(interaction, content, options) {
+  let method = 'reply';
+  if (interaction.deferred && !interaction.replied) {
+    method = 'editReply';
+  } else if (interaction.replied) {
+    method = 'followUp';
+  }
+  return sendDiscordMessage(interaction, method, content, options);
+}
 
 const sendFollowUp = (interaction, content, options) =>
   sendDiscordMessage(interaction, 'followUp', content, options);

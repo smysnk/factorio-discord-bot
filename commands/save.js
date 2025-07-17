@@ -16,6 +16,7 @@ module.exports = {
     await interaction.respond(filtered.map(b => ({ name: b, value: b })));
   },
   async execute(interaction) {
+    await interaction.deferReply();
     const inst = await findRunningInstance();
     if (!inst) {
       await sendReply(interaction, 'No running server');

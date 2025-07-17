@@ -4,6 +4,7 @@ const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply
 module.exports = {
   data: new SlashCommandBuilder().setName('status').setDescription('Get server status'),
   async execute(interaction) {
+    await interaction.deferReply();
     const inst = await findRunningInstance();
     if (inst) {
       const ip = inst.PublicIpAddress;

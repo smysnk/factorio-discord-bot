@@ -47,11 +47,7 @@ bot.on(Events.InteractionCreate, async interaction => {
   } catch (err) {
     console.error(err);
     const msg = 'Error: ' + err.message;
-    if (interaction.replied || interaction.deferred) {
-      await sendFollowUp(interaction, msg, { ephemeral: true });
-    } else {
-      await sendReply(interaction, msg, { ephemeral: true });
-    }
+    await sendReply(interaction, msg, { ephemeral: true });
   }
 });
 

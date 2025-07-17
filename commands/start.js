@@ -15,6 +15,7 @@ module.exports = {
     await interaction.respond(filtered.map(n => ({ name: n, value: n })));
   },
   async execute(interaction) {
+    await interaction.deferReply();
     await lib.sendReply(interaction, 'Checking for existing server...');
     const existing = await lib.findRunningInstance();
     if (existing) {
