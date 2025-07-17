@@ -12,6 +12,7 @@ const {
   RunInstancesCommand,
   TerminateInstancesCommand,
   CreateTagsCommand,
+  DescribeSecurityGroupsCommand,
   CreateSecurityGroupCommand,
   AuthorizeSecurityGroupIngressCommand,
   AuthorizeSecurityGroupEgressCommand,
@@ -85,29 +86,45 @@ async function findRunningInstance() {
   return null;
 }
 
-async function createSecurityGroup() {
-  const resp = await ec2.send(new CreateSecurityGroupCommand({
-    Description: 'factorio-server',
-    GroupName: template.security_group_name
-  }));
-  const sgId = resp.GroupId;
+async function ensureSecurityGroup() {
+  const resp = await ec2.send(
+    new DescribeSecurityGroupsCommand({
+      Filters: [{ Name: 'group-name', Values: [template.security_group_name] }]
+    })
+  );
+  if (resp.SecurityGroups && resp.SecurityGroups.length) {
+    return resp.SecurityGroups[0].GroupId;
+  }
+  const create = await ec2.send(
+    new CreateSecurityGroupCommand({
+      Description: 'factorio-server',
+      GroupName: template.security_group_name
+    })
+  );
+  const sgId = create.GroupId;
   if (template.ingress_ports && template.ingress_ports.length) {
-    await ec2.send(new AuthorizeSecurityGroupIngressCommand({
-      GroupId: sgId,
-      IpProtocol: 'udp',
-      FromPort: Math.min(...template.ingress_ports),
-      ToPort: Math.max(...template.ingress_ports),
-      CidrIp: '0.0.0.0/0'
-    }));
+    await ec2.send(
+      new AuthorizeSecurityGroupIngressCommand({
+        GroupId: sgId,
+        IpProtocol: 'udp',
+        FromPort: Math.min(...template.ingress_ports),
+        ToPort: Math.max(...template.ingress_ports),
+        CidrIp: '0.0.0.0/0'
+      })
+    );
   }
   if (template.egress_ports && template.egress_ports.length) {
-    await ec2.send(new AuthorizeSecurityGroupEgressCommand({
-      GroupId: sgId,
-      IpPermissions: [{
-        IpProtocol: '-1',
-        IpRanges: [{ CidrIp: '0.0.0.0/0' }]
-      }]
-    }));
+    await ec2.send(
+      new AuthorizeSecurityGroupEgressCommand({
+        GroupId: sgId,
+        IpPermissions: [
+          {
+            IpProtocol: '-1',
+            IpRanges: [{ CidrIp: '0.0.0.0/0' }]
+          }
+        ]
+      })
+    );
   }
   return sgId;
 }
@@ -260,7 +277,7 @@ bot.on(Events.InteractionCreate, async (interaction) => {
       }
       const saveLabel = interaction.options.getString('name');
       await interaction.followUp('Launching EC2 instance...');
-      const sgId = await createSecurityGroup();
+      const sgId = await ensureSecurityGroup();
       instanceId = await launchInstance(sgId, saveLabel);
       const ip = await waitForInstance(instanceId);
       await interaction.followUp(`Instance launched with IP ${ip}, installing docker...`);
