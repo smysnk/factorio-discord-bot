@@ -13,7 +13,11 @@ const {
   AuthorizeSecurityGroupEgressCommand,
   waitUntilInstanceRunning
 } = require('@aws-sdk/client-ec2');
-const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const {
+  S3Client,
+  ListObjectsV2Command,
+  GetBucketLocationCommand
+} = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
 
 const templatePath = process.env.EC2_TEMPLATE || 'ec2_template.json';
@@ -28,9 +32,24 @@ const awsConfig = {
 };
 
 const ec2 = new EC2Client(awsConfig);
-const s3 = new S3Client(awsConfig);
+let s3 = new S3Client(awsConfig);
 
 const state = { instanceId: null };
+
+async function ensureBucketRegion() {
+  if (!awsConfig.region) {
+    const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
+    try {
+      const resp = await tmp.send(
+        new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
+      );
+      awsConfig.region = resp.LocationConstraint || 'us-east-1';
+      s3 = new S3Client(awsConfig);
+    } catch {
+      // fall back to default region
+    }
+  }
+}
 
 async function findRunningInstance() {
   const filters = [
@@ -211,10 +230,32 @@ async function sshExec(ip, command) {
 }
 
 async function listBackups() {
-  const resp = await s3.send(
-    new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
-  );
-  return resp.Contents || [];
+  await ensureBucketRegion();
+  try {
+    const resp = await s3.send(
+      new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
+    );
+    return resp.Contents || [];
+  } catch (err) {
+    if (err.Code === 'PermanentRedirect') {
+      const region = err.BucketRegion || err.Region;
+      if (region) {
+        awsConfig.region = region;
+      } else {
+        const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
+        const r = await tmp.send(
+          new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
+        );
+        awsConfig.region = r.LocationConstraint || 'us-east-1';
+      }
+      s3 = new S3Client(awsConfig);
+      const resp = await s3.send(
+        new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
+      );
+      return resp.Contents || [];
+    }
+    throw err;
+  }
 }
 
 function flattenMetadata(obj, prefix = '') {
@@ -259,10 +300,11 @@ function backupCommands(name) {
   const jsonFile = `${name}.${currentDateString()}.json`;
   const uploadBase = process.env.BACKUP_UPLOAD_URL || '';
   const header = process.env.BACKUP_UPLOAD_AUTH_HEADER || '';
+  const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   return (
     `sudo docker stop factorio && ` +
     `tar cjf /tmp/${file} -C /opt factorio && ` +
-    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile} && ` +
+    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `curl -H \"${header}\" -T /tmp/${file} \"${uploadBase}/${file}\" && ` +
     `rm /tmp/${file} && sudo docker start factorio`
   );
