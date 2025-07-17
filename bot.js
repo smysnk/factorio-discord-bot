@@ -11,6 +11,7 @@ const {
   DescribeInstancesCommand,
   RunInstancesCommand,
   TerminateInstancesCommand,
+  CreateTagsCommand,
   CreateSecurityGroupCommand,
   AuthorizeSecurityGroupIngressCommand,
   AuthorizeSecurityGroupEgressCommand,
@@ -36,20 +37,24 @@ const s3 = new S3Client(awsConfig);
 const channelId = process.env.DISCORD_CHANNEL_ID;
 const guildId = process.env.DISCORD_GUILD_ID;
 let instanceId = null;
-let backupName = null;
 
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const commands = [
-  new SlashCommandBuilder().setName('start').setDescription('Start the Factorio server'),
+  new SlashCommandBuilder()
+    .setName('start')
+    .setDescription('Start the Factorio server')
+    .addStringOption(o =>
+      o.setName('name').setDescription('Optional save label').setRequired(false)
+    ),
   new SlashCommandBuilder().setName('stop').setDescription('Stop the Factorio server'),
   new SlashCommandBuilder().setName('list').setDescription('List available backups'),
   new SlashCommandBuilder().setName('status').setDescription('Get server status'),
   new SlashCommandBuilder()
-    .setName('name')
-    .setDescription('Set backup name')
+    .setName('save')
+    .setDescription('Save the server with a name')
     .addStringOption(option =>
-      option.setName('backup').setDescription('Backup name').setAutocomplete(true).setRequired(true)
+      option.setName('name').setDescription('Save name').setAutocomplete(true).setRequired(true)
     )
 ];
 
@@ -74,7 +79,7 @@ async function findRunningInstance() {
   const resp = await ec2.send(new DescribeInstancesCommand({ Filters: filters }));
   for (const res of resp.Reservations || []) {
     for (const inst of res.Instances || []) {
-      return inst.InstanceId;
+      return inst;
     }
   }
   return null;
@@ -107,10 +112,14 @@ async function createSecurityGroup() {
   return sgId;
 }
 
-async function launchInstance(sgId) {
+async function launchInstance(sgId, saveLabel) {
+  const tags = Object.entries(template.tags).map(([Key, Value]) => ({ Key, Value }));
+  if (saveLabel) {
+    tags.push({ Key: 'SaveName', Value: saveLabel });
+  }
   const tagSpecifications = [{
     ResourceType: 'instance',
-    Tags: Object.entries(template.tags).map(([Key, Value]) => ({ Key, Value }))
+    Tags: tags
   }];
   const resp = await ec2.send(new RunInstancesCommand({
     ImageId: template.ami,
@@ -151,16 +160,86 @@ function sshAndSetup(ip) {
   });
 }
 
+function sshExec(ip, command) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.SSH_KEY_PATH;
+    if (!key) return reject(new Error('SSH_KEY_PATH not set'));
+    const ssh = new SSHClient();
+    let out = '';
+    ssh.on('ready', () => {
+      ssh.exec(command, (err, stream) => {
+        if (err) {
+          ssh.end();
+          return reject(err);
+        }
+        stream.on('data', d => { out += d.toString(); });
+        stream.stderr.on('data', d => { out += d.toString(); });
+        stream.on('close', () => {
+          ssh.end();
+          resolve(out.trim());
+        });
+      });
+    }).on('error', reject).connect({ host: ip, username: 'ec2-user', privateKey: fs.readFileSync(key) });
+  });
+}
+
 async function listBackups() {
   const resp = await s3.send(new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET }));
   return (resp.Contents || []).map(o => o.Key);
+}
+
+function flattenMetadata(obj, prefix = '') {
+  const rows = [];
+  for (const [k, v] of Object.entries(obj || {})) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object') {
+      rows.push(...flattenMetadata(v, key));
+    } else {
+      rows.push([key, String(v)]);
+    }
+  }
+  return rows;
+}
+
+function formatValue(val) {
+  return String(val);
+}
+
+function formatMetadata(metadata) {
+  if (!metadata || Object.keys(metadata).length === 0) {
+    return undefined;
+  }
+  const rows = flattenMetadata(metadata).map(([k, v]) => [k, formatValue(v)]);
+  const headers = ['Key', 'Value'];
+  const col1 = Math.max(headers[0].length, ...rows.map(r => r[0].length));
+  const col2 = Math.max(headers[1].length, ...rows.map(r => r[1].length));
+  const sep = `+${'-'.repeat(col1 + 2)}+${'-'.repeat(col2 + 2)}+`;
+  const lines = [
+    sep,
+    `| ${headers[0].padEnd(col1)} | ${headers[1].padEnd(col2)} |`,
+    sep,
+    ...rows.map(r => `| ${r[0].padEnd(col1)} | ${r[1].padEnd(col2)} |`),
+    sep,
+  ];
+  return '```\n' + lines.join('\n') + '\n```';
+}
+
+async function getSystemStats(ip) {
+  try {
+    const load = await sshExec(ip, 'cat /proc/loadavg');
+    const mem = await sshExec(ip, 'free -m | awk \'/Mem:/ {print $3"/"$2" MB"}\'');
+    const disk = await sshExec(ip, 'df -h /opt/factorio | tail -1 | awk \'{print $3"/"$2" used"}\'');
+    return { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
+  } catch (e) {
+    return {};
+  }
 }
 
 bot.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.channelId !== channelId) return;
 
   if (interaction.isAutocomplete()) {
-    if (interaction.commandName === 'name') {
+    if (interaction.commandName === 'save') {
       const focused = interaction.options.getFocused();
       const backups = await listBackups();
       const filtered = backups.filter(b => b.startsWith(focused)).slice(0, 25);
@@ -179,20 +258,29 @@ bot.on(Events.InteractionCreate, async (interaction) => {
         await interaction.followUp('Server already running');
         return;
       }
+      const saveLabel = interaction.options.getString('name');
       await interaction.followUp('Launching EC2 instance...');
       const sgId = await createSecurityGroup();
-      instanceId = await launchInstance(sgId);
+      instanceId = await launchInstance(sgId, saveLabel);
       const ip = await waitForInstance(instanceId);
       await interaction.followUp(`Instance launched with IP ${ip}, installing docker...`);
       await sshAndSetup(ip);
       await interaction.followUp(`Factorio server running at ${ip}`);
     } else if (interaction.commandName === 'stop') {
-      if (!instanceId) {
+      let inst = instanceId ? await ec2.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] })) : null;
+      inst = inst ? inst.Reservations[0].Instances[0] : await findRunningInstance();
+      if (!inst) {
         await interaction.reply('No running server');
         return;
       }
-      await interaction.reply('Stopping server...');
-      await ec2.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }));
+      const ip = inst.PublicIpAddress;
+      const tag = (inst.Tags || []).find(t => t.Key === 'SaveName');
+      const name = tag ? tag.Value : `backup-${Date.now()}`;
+      await interaction.reply(`Stopping server and saving as ${name}...`);
+      if (ip) {
+        await sshExec(ip, `sudo docker stop factorio && sudo tar czf /tmp/${name}.tgz /opt/factorio && aws s3 cp /tmp/${name}.tgz s3://${process.env.BACKUP_BUCKET}/${name}.tgz && rm /tmp/${name}.tgz && sudo docker start factorio`);
+      }
+      await ec2.send(new TerminateInstancesCommand({ InstanceIds: [inst.InstanceId] }));
       instanceId = null;
       await interaction.followUp('Server terminated');
     } else if (interaction.commandName === 'list') {
@@ -201,13 +289,38 @@ bot.on(Events.InteractionCreate, async (interaction) => {
     } else if (interaction.commandName === 'status') {
       const inst = await findRunningInstance();
       if (inst) {
-        await interaction.reply(`Server running: ${inst}`);
+        const ip = inst.PublicIpAddress;
+        const stats = ip ? await getSystemStats(ip) : {};
+        const meta = {
+          'Instance ID': inst.InstanceId,
+          'Instance Type': inst.InstanceType,
+          'Availability Zone': inst.Placement.AvailabilityZone,
+          'IP Address': ip,
+          'Security Groups': inst.SecurityGroups.map(g => g.GroupName).join(', '),
+          'Open Ports': (template.ingress_ports || []).join(', '),
+          Load: stats.load,
+          Memory: stats.memory,
+          'Disk /opt/factorio': stats.disk
+        };
+        const table = formatMetadata(meta);
+        await interaction.reply(table || 'No data');
       } else {
         await interaction.reply('No running servers');
       }
-    } else if (interaction.commandName === 'name') {
-      backupName = interaction.options.getString('backup');
-      await interaction.reply(`Backup name set to ${backupName}`);
+    } else if (interaction.commandName === 'save') {
+      const inst = await findRunningInstance();
+      if (!inst) {
+        await interaction.reply('No running server');
+        return;
+      }
+      const name = interaction.options.getString('name');
+      const ip = inst.PublicIpAddress;
+      await ec2.send(new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] }));
+      await interaction.reply(`Saving as ${name}...`);
+      if (ip) {
+        await sshExec(ip, `sudo docker stop factorio && sudo tar czf /tmp/${name}.tgz /opt/factorio && aws s3 cp /tmp/${name}.tgz s3://${process.env.BACKUP_BUCKET}/${name}.tgz && rm /tmp/${name}.tgz && sudo docker start factorio`);
+      }
+      await interaction.followUp('Save complete');
     }
   } catch (err) {
     console.error(err);

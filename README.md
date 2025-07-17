@@ -17,6 +17,4 @@ npm install
 node bot.js
 ```
 
-The bot uses slash commands which are registered automatically on startup.
-Use `DISCORD_CHANNEL_ID` to restrict the channel and `DISCORD_GUILD_ID` to limit
-registration to a single guild.
+The bot uses slash commands which are registered automatically on startup. Use `/start` to launch the server, optionally passing a name with the `--name` option. The `/save` command stores the current world under a label and `/stop` will back up using that label before terminating the instance. Use `DISCORD_CHANNEL_ID` to restrict the channel and `DISCORD_GUILD_ID` to limit registration to a single guild.
