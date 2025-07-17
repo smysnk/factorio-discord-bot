@@ -140,6 +140,7 @@ function connectSSH(ip, attempts = 10) {
       ssh
         .on('ready', () => resolve(ssh))
         .on('error', err => {
+          console.log(err);
           ssh.end();
           if (n <= 1) return reject(err);
           setTimeout(() => tryConnect(n - 1), 2000);
@@ -148,7 +149,6 @@ function connectSSH(ip, attempts = 10) {
           host: ip,
           username: 'ec2-user',
           privateKey: fs.readFileSync(key),
-          hostVerifier: () => true
         });
     };
     tryConnect(attempts);
@@ -325,8 +325,8 @@ function formatBackupTree(objects) {
 async function getSystemStats(ip) {
   try {
     const load = await sshExec(ip, 'cat /proc/loadavg');
-    const mem = await sshExec(ip, "free -m | awk '/Mem:/ {print $3"/"$2" MB"}'");
-    const disk = await sshExec(ip, "df -h /opt/factorio | tail -1 | awk '{print $3"/"$2" used'}");
+    const mem = await sshExec(ip, "free -m | awk '/Mem:/ {print \"3\"/\"$2\" MB\"}'");
+    const disk = await sshExec(ip, "df -h /opt/factorio | tail -1 | awk '{print \"$3\"/\"$2\" used'}");
     return { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
   } catch (e) {
     return {};
