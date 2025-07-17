@@ -16,6 +16,7 @@ module.exports = {
     await interaction.respond(filtered.map(b => ({ name: b, value: b })));
   },
   async execute(interaction) {
+    require('../lib').debug('save command invoked');
     await interaction.deferReply();
     const inst = await findRunningInstance();
     if (!inst) {
@@ -30,5 +31,6 @@ module.exports = {
       await sshExec(ip, backupCommands(name));
     }
     await sendFollowUp(interaction, 'Save complete');
+    require('../lib').debug('save command completed');
   }
 };

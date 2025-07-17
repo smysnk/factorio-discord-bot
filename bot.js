@@ -30,6 +30,8 @@ bot.once(Events.ClientReady, async () => {
 bot.on(Events.InteractionCreate, async interaction => {
   if (interaction.channelId !== channelId) return;
 
+  debug('Received interaction', interaction.commandName);
+
   const command = commands.get(interaction.commandName);
   if (!command) return;
 
@@ -44,8 +46,10 @@ bot.on(Events.InteractionCreate, async interaction => {
 
   try {
     await command.execute(interaction);
+    debug('Command executed', interaction.commandName);
   } catch (err) {
     console.error(err);
+    debug('Interaction error', err.message);
     const msg = 'Error: ' + err.message;
     await sendReply(interaction, msg, { ephemeral: true });
   }

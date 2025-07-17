@@ -4,6 +4,7 @@ const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply
 module.exports = {
   data: new SlashCommandBuilder().setName('status').setDescription('Get server status'),
   async execute(interaction) {
+    require('../lib').debug('status command invoked');
     await interaction.deferReply();
     const inst = await findRunningInstance();
     if (inst) {
@@ -22,6 +23,7 @@ module.exports = {
       };
       const table = formatMetadata(meta);
       await sendReply(interaction, table || 'No data');
+      require('../lib').debug('status command completed');
     } else {
       await sendReply(interaction, 'No running servers');
     }
