@@ -1,5 +1,4 @@
 {
-  "availability_zone": "us-east-1a",
   "security_group_name": "factorio-sg",
   "ingress_ports": [34197, 27015],
   "egress_ports": [],

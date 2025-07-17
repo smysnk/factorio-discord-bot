@@ -71,8 +71,7 @@ bot.once(Events.ClientReady, async () => {
 
 async function findRunningInstance() {
   const filters = [
-    { Name: 'instance-state-name', Values: ['pending', 'running'] },
-    { Name: 'availability-zone', Values: [template.availability_zone] }
+    { Name: 'instance-state-name', Values: ['pending', 'running'] }
   ];
   for (const [k, v] of Object.entries(template.tags)) {
     filters.push({ Name: `tag:${k}`, Values: [v] });
@@ -145,8 +144,7 @@ async function launchInstance(sgId, saveLabel) {
     SecurityGroupIds: [sgId],
     TagSpecifications: tagSpecifications,
     MinCount: 1,
-    MaxCount: 1,
-    Placement: { AvailabilityZone: template.availability_zone }
+    MaxCount: 1
   }));
   return resp.Instances[0].InstanceId;
 }
