@@ -20,6 +20,12 @@ const {
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
 
+function debug(...args) {
+  if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
+    console.log(...args);
+  }
+}
+
 const templatePath = process.env.EC2_TEMPLATE || 'ec2_template.json';
 const template = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
 
@@ -45,6 +51,7 @@ async function ensureBucketRegion() {
       );
       awsConfig.region = resp.LocationConstraint || 'us-east-1';
       s3 = new S3Client(awsConfig);
+      debug('Detected bucket region', awsConfig.region);
     } catch {
       // fall back to default region
     }
@@ -159,7 +166,7 @@ function connectSSH(ip, attempts = 10) {
       ssh
         .on('ready', () => resolve(ssh))
         .on('error', err => {
-          console.log(err);
+          debug(err);
           ssh.end();
           if (n <= 1) return reject(err);
           setTimeout(() => tryConnect(n - 1), 2000);
@@ -211,6 +218,7 @@ async function sshAndSetup(ip, backupFile) {
 }
 
 async function sshExec(ip, command) {
+  debug('sshExec', ip, command);
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     let out = '';
@@ -231,6 +239,7 @@ async function sshExec(ip, command) {
 
 async function listBackups() {
   await ensureBucketRegion();
+  debug('Listing backups from', process.env.BACKUP_BUCKET, 'in', awsConfig.region);
   try {
     const resp = await s3.send(
       new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
@@ -241,12 +250,14 @@ async function listBackups() {
       const region = err.BucketRegion || err.Region;
       if (region) {
         awsConfig.region = region;
+        debug('S3 redirect, switching region to', region);
       } else {
         const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
         const r = await tmp.send(
           new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
         );
         awsConfig.region = r.LocationConstraint || 'us-east-1';
+        debug('Fetched bucket region', awsConfig.region);
       }
       s3 = new S3Client(awsConfig);
       const resp = await s3.send(
@@ -445,5 +456,6 @@ module.exports = {
   DescribeInstancesCommand,
   TerminateInstancesCommand,
   sendReply,
-  sendFollowUp
+  sendFollowUp,
+  debug
 };

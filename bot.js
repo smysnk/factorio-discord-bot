@@ -1,7 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { sendReply, sendFollowUp } = require('./lib');
+const { sendReply, sendFollowUp, debug } = require('./lib');
 const path = require('path');
 
 const channelId = process.env.DISCORD_CHANNEL_ID;
@@ -18,7 +18,7 @@ for (const file of commandFiles) {
 }
 
 bot.once(Events.ClientReady, async () => {
-  console.log(`Logged in as ${bot.user.tag}`);
+  debug(`Logged in as ${bot.user.tag}`);
   const data = Array.from(commands.values()).map(c => c.data.toJSON());
   if (guildId) {
     await bot.application.commands.set(data, guildId);
