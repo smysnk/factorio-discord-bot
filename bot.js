@@ -46,7 +46,11 @@ const commands = [
     .setName('start')
     .setDescription('Start the Factorio server')
     .addStringOption(o =>
-      o.setName('name').setDescription('Optional save label').setRequired(false)
+      o
+        .setName('name')
+        .setDescription('Optional save label')
+        .setRequired(false)
+        .setAutocomplete(true)
     ),
   new SlashCommandBuilder().setName('stop').setDescription('Stop the Factorio server'),
   new SlashCommandBuilder().setName('list').setDescription('List available backups'),
@@ -155,7 +159,7 @@ async function waitForInstance(id) {
   return desc.Reservations[0].Instances[0].PublicIpAddress;
 }
 
-function sshAndSetup(ip) {
+function sshAndSetup(ip, backupFile) {
   return new Promise((resolve, reject) => {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
@@ -166,12 +170,22 @@ function sshAndSetup(ip) {
         const ports = (template.ingress_ports || [])
           .map(p => `-p ${p}:${p}/udp`)
           .join(' ');
-        const cmd = [
+        const cmds = [
           'sudo yum install -y docker',
           'sudo service docker start',
-          'sudo mkdir -p /opt/factorio',
+          'sudo mkdir -p /opt/factorio'
+        ];
+        if (backupFile) {
+          const header = process.env.BACKUP_DOWNLOAD_AUTH_HEADER || '';
+          const base = process.env.BACKUP_DOWNLOAD_URL || '';
+          cmds.push(
+            `curl -L ${header ? `-H \"${header}\"` : ''} \"${base}/${backupFile}\" | tar xj -C /opt/factorio`
+          );
+        }
+        cmds.push(
           `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
-        ].join(' && ');
+        );
+        const cmd = cmds.join(' && ');
         ssh.exec(cmd, (err, stream) => {
           if (err) {
             ssh.end();
@@ -222,8 +236,10 @@ function sshExec(ip, command) {
 }
 
 async function listBackups() {
-  const resp = await s3.send(new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET }));
-  return (resp.Contents || []).map(o => o.Key);
+  const resp = await s3.send(
+    new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
+  );
+  return resp.Contents || [];
 }
 
 function flattenMetadata(obj, prefix = '') {
@@ -262,6 +278,75 @@ function formatMetadata(metadata) {
   return '```\n' + lines.join('\n') + '\n```';
 }
 
+function currentDateString() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+}
+
+function backupFilename(name) {
+  return `${name}.${currentDateString()}.tar.bz2`;
+}
+
+function backupCommands(name) {
+  const file = backupFilename(name);
+  const jsonFile = `${name}.${currentDateString()}.json`;
+  const uploadBase = process.env.BACKUP_UPLOAD_URL || '';
+  const header = process.env.BACKUP_UPLOAD_AUTH_HEADER || '';
+  return (
+    `sudo docker stop factorio && ` +
+    `tar cjf /tmp/${file} -C /opt factorio && ` +
+    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile} && ` +
+    `curl -H \"${header}\" -T /tmp/${file} \"${uploadBase}/${file}\" && ` +
+    `rm /tmp/${file} && sudo docker start factorio`
+  );
+}
+
+function parseBackupKey(key) {
+  const m = key.match(/^(.*)\.(\d{4}\.\d{2}\.\d{2})\.tar\.bz2$/);
+  if (!m) return null;
+  return { name: m[1], date: m[2] };
+}
+
+async function listBackupNames() {
+  const objects = await listBackups();
+  const names = new Set();
+  for (const o of objects) {
+    const p = parseBackupKey(o.Key);
+    if (p) names.add(p.name);
+  }
+  return Array.from(names);
+}
+
+async function getLatestBackupFile(name) {
+  const objects = await listBackups();
+  const filtered = objects
+    .map(o => ({ meta: parseBackupKey(o.Key), obj: o }))
+    .filter(x => x.meta && x.meta.name === name)
+    .sort((a, b) => new Date(b.obj.LastModified) - new Date(a.obj.LastModified));
+  return filtered.length ? filtered[0].obj.Key : null;
+}
+
+function formatBackupTree(objects) {
+  const map = new Map();
+  for (const o of objects) {
+    const p = parseBackupKey(o.Key);
+    if (!p) continue;
+    if (!map.has(p.name)) map.set(p.name, []);
+    map.get(p.name).push({ date: p.date, size: o.Size });
+  }
+  const lines = [];
+  for (const [name, list] of map.entries()) {
+    lines.push(name);
+    list.sort((a, b) => (a.date < b.date ? 1 : -1));
+    for (const item of list) {
+      const mb = (item.size / 1024 / 1024).toFixed(1);
+      lines.push(`  - ${item.date} (${mb} MB)`);
+    }
+  }
+  return '```\n' + lines.join('\n') + '\n```';
+}
+
 async function getSystemStats(ip) {
   try {
     const load = await sshExec(ip, 'cat /proc/loadavg');
@@ -280,8 +365,16 @@ bot.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'save') {
       const focused = interaction.options.getFocused();
       const backups = await listBackups();
-      const filtered = backups.filter(b => b.startsWith(focused)).slice(0, 25);
+      const filtered = backups
+        .map(o => o.Key)
+        .filter(b => b.startsWith(focused))
+        .slice(0, 25);
       await interaction.respond(filtered.map(b => ({ name: b, value: b })));
+    } else if (interaction.commandName === 'start') {
+      const focused = interaction.options.getFocused();
+      const names = await listBackupNames();
+      const filtered = names.filter(n => n.startsWith(focused)).slice(0, 25);
+      await interaction.respond(filtered.map(n => ({ name: n, value: n })));
     }
     return;
   }
@@ -301,8 +394,11 @@ bot.on(Events.InteractionCreate, async (interaction) => {
       const sgId = await ensureSecurityGroup();
       instanceId = await launchInstance(sgId, saveLabel);
       const ip = await waitForInstance(instanceId);
-      await interaction.followUp(`Instance launched with IP ${ip}, installing docker...`);
-      await sshAndSetup(ip);
+      const backupFile = saveLabel ? await getLatestBackupFile(saveLabel) : null;
+      await interaction.followUp(
+        `Instance launched with IP ${ip}${backupFile ? ', restoring backup...' : ', installing docker...'}`
+      );
+      await sshAndSetup(ip, backupFile);
       await interaction.followUp(`Factorio server running at ${ip}`);
     } else if (interaction.commandName === 'stop') {
       let inst = instanceId ? await ec2.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] })) : null;
@@ -316,14 +412,15 @@ bot.on(Events.InteractionCreate, async (interaction) => {
       const name = tag ? tag.Value : `backup-${Date.now()}`;
       await interaction.reply(`Stopping server and saving as ${name}...`);
       if (ip) {
-        await sshExec(ip, `sudo docker stop factorio && sudo tar czf /tmp/${name}.tgz /opt/factorio && aws s3 cp /tmp/${name}.tgz s3://${process.env.BACKUP_BUCKET}/${name}.tgz && rm /tmp/${name}.tgz && sudo docker start factorio`);
+        await sshExec(ip, backupCommands(name));
       }
       await ec2.send(new TerminateInstancesCommand({ InstanceIds: [inst.InstanceId] }));
       instanceId = null;
       await interaction.followUp('Server terminated');
     } else if (interaction.commandName === 'list') {
-      const backups = await listBackups();
-      await interaction.reply('Available backups: ' + backups.join(', '));
+      const objects = await listBackups();
+      const out = formatBackupTree(objects);
+      await interaction.reply(out || 'No backups');
     } else if (interaction.commandName === 'status') {
       const inst = await findRunningInstance();
       if (inst) {
@@ -353,10 +450,12 @@ bot.on(Events.InteractionCreate, async (interaction) => {
       }
       const name = interaction.options.getString('name');
       const ip = inst.PublicIpAddress;
-      await ec2.send(new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] }));
+      await ec2.send(
+        new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] })
+      );
       await interaction.reply(`Saving as ${name}...`);
       if (ip) {
-        await sshExec(ip, `sudo docker stop factorio && sudo tar czf /tmp/${name}.tgz /opt/factorio && aws s3 cp /tmp/${name}.tgz s3://${process.env.BACKUP_BUCKET}/${name}.tgz && rm /tmp/${name}.tgz && sudo docker start factorio`);
+        await sshExec(ip, backupCommands(name));
       }
       await interaction.followUp('Save complete');
     }

@@ -9,6 +9,10 @@ This project contains a simple Discord bot that can manage a Factorio game serve
    The bot automatically loads variables from `.env` when it starts.
 3. Set `DOCKER_IMAGE` to the Factorio Docker image you wish to run
    (e.g. `factoriotools/factorio:latest`).
+4. Configure `BACKUP_UPLOAD_URL` and `BACKUP_DOWNLOAD_URL` with endpoints that
+   accept authenticated `curl` uploads and downloads. Provide the matching
+   `BACKUP_UPLOAD_AUTH_HEADER` and `BACKUP_DOWNLOAD_AUTH_HEADER` values to
+   include in the requests.
 
 ## Running the Bot
 
@@ -19,4 +23,9 @@ npm install
 node bot.js
 ```
 
-The bot uses slash commands which are registered automatically on startup. Use `/start` to launch the server, optionally passing a name with the `--name` option. The `/save` command stores the current world under a label and `/stop` will back up using that label before terminating the instance. Use `DISCORD_CHANNEL_ID` to restrict the channel and `DISCORD_GUILD_ID` to limit registration to a single guild.
+The bot uses slash commands which are registered automatically on startup. Use
+`/start` to launch the server, optionally selecting a prior backup name to
+restore. The `/save` and `/stop` commands create a dated archive and player data
+file which are uploaded via the configured URLs before shutting down (for
+`/stop`). Use `DISCORD_CHANNEL_ID` to restrict the channel and
+`DISCORD_GUILD_ID` to limit registration to a single guild.
