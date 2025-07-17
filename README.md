@@ -7,6 +7,8 @@ This project contains a simple Discord bot that can manage a Factorio game serve
 1. Copy `.env.example` to `.env` and fill in the required values.
 2. Adjust `ec2_template.json` to match the EC2 instance you want to launch.
    The bot automatically loads variables from `.env` when it starts.
+3. Set `DOCKER_IMAGE` to the Factorio Docker image you wish to run
+   (e.g. `factoriotools/factorio:latest`).
 
 ## Running the Bot
 

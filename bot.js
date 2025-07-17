@@ -162,18 +162,31 @@ function sshAndSetup(ip) {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
     const ssh = new SSHClient();
-    ssh.on('ready', () => {
-      ssh.exec('sudo yum install -y docker && sudo service docker start', (err, stream) => {
-        if (err) {
-          ssh.end();
-          return reject(err);
-        }
-        stream.on('close', () => {
-          ssh.end();
-          resolve();
+    ssh
+      .on('ready', () => {
+        const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+        const ports = (template.ingress_ports || [])
+          .map(p => `-p ${p}:${p}/udp`)
+          .join(' ');
+        const cmd = [
+          'sudo yum install -y docker',
+          'sudo service docker start',
+          'sudo mkdir -p /opt/factorio',
+          `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
+        ].join(' && ');
+        ssh.exec(cmd, (err, stream) => {
+          if (err) {
+            ssh.end();
+            return reject(err);
+          }
+          stream.on('close', () => {
+            ssh.end();
+            resolve();
+          });
         });
-      });
-    }).on('error', reject).connect({ host: ip, username: 'ec2-user', privateKey: fs.readFileSync(key) });
+      })
+      .on('error', reject)
+      .connect({ host: ip, username: 'ec2-user', privateKey: fs.readFileSync(key) });
   });
 }
 
