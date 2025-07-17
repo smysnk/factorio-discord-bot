@@ -184,7 +184,12 @@ function sshAndSetup(ip) {
         });
       })
       .on('error', reject)
-      .connect({ host: ip, username: 'ec2-user', privateKey: fs.readFileSync(key) });
+      .connect({
+        host: ip,
+        username: 'ec2-user',
+        privateKey: fs.readFileSync(key),
+        hostVerifier: () => true
+      });
   });
 }
 
@@ -207,7 +212,12 @@ function sshExec(ip, command) {
           resolve(out.trim());
         });
       });
-    }).on('error', reject).connect({ host: ip, username: 'ec2-user', privateKey: fs.readFileSync(key) });
+    }).on('error', reject).connect({
+      host: ip,
+      username: 'ec2-user',
+      privateKey: fs.readFileSync(key),
+      hostVerifier: () => true
+    });
   });
 }
 
