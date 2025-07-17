@@ -1,5 +1,6 @@
 require('dotenv').config();
 const fs = require('fs');
+const cp = require('child_process');
 const {
   Client,
   GatewayIntentBits,
@@ -159,78 +160,94 @@ async function waitForInstance(id) {
   return desc.Reservations[0].Instances[0].PublicIpAddress;
 }
 
-function sshAndSetup(ip, backupFile) {
-  return new Promise((resolve, reject) => {
-    const key = process.env.SSH_KEY_PATH;
-    if (!key) return reject(new Error('SSH_KEY_PATH not set'));
-    const ssh = new SSHClient();
-    ssh
-      .on('ready', () => {
-        const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
-        const ports = (template.ingress_ports || [])
-          .map(p => `-p ${p}:${p}/udp`)
-          .join(' ');
-        const cmds = [
-          'sudo yum install -y docker',
-          'sudo service docker start',
-          'sudo mkdir -p /opt/factorio'
-        ];
-        if (backupFile) {
-          const header = process.env.BACKUP_DOWNLOAD_AUTH_HEADER || '';
-          const base = process.env.BACKUP_DOWNLOAD_URL || '';
-          cmds.push(
-            `curl -L ${header ? `-H \"${header}\"` : ''} \"${base}/${backupFile}\" | tar xj -C /opt/factorio`
-          );
-        }
-        cmds.push(
-          `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
-        );
-        const cmd = cmds.join(' && ');
-        ssh.exec(cmd, (err, stream) => {
-          if (err) {
-            ssh.end();
-            return reject(err);
-          }
-          stream.on('close', () => {
-            ssh.end();
-            resolve();
-          });
-        });
-      })
-      .on('error', reject)
-      .connect({
-        host: ip,
-        username: 'ec2-user',
-        privateKey: fs.readFileSync(key),
-        hostVerifier: () => true
+function waitForPing(ip) {
+  return new Promise(resolve => {
+    const check = () => {
+      cp.exec(`ping -c 1 ${ip}`, err => {
+        if (!err) return resolve();
+        setTimeout(check, 2000);
       });
+    };
+    check();
   });
 }
 
-function sshExec(ip, command) {
-  return new Promise((resolve, reject) => {
+function connectSSH(ip, attempts = 10) {
+  return new Promise(async (resolve, reject) => {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
-    const ssh = new SSHClient();
-    let out = '';
-    ssh.on('ready', () => {
-      ssh.exec(command, (err, stream) => {
-        if (err) {
+    await waitForPing(ip);
+    const tryConnect = n => {
+      const ssh = new SSHClient();
+      ssh
+        .on('ready', () => resolve(ssh))
+        .on('error', err => {
           ssh.end();
-          return reject(err);
-        }
-        stream.on('data', d => { out += d.toString(); });
-        stream.stderr.on('data', d => { out += d.toString(); });
-        stream.on('close', () => {
-          ssh.end();
-          resolve(out.trim());
+          if (n <= 1) return reject(err);
+          setTimeout(() => tryConnect(n - 1), 2000);
+        })
+        .connect({
+          host: ip,
+          username: 'ec2-user',
+          privateKey: fs.readFileSync(key),
+          hostVerifier: () => true
         });
+    };
+    tryConnect(attempts);
+  });
+}
+
+async function sshAndSetup(ip, backupFile) {
+  const ssh = await connectSSH(ip);
+  return new Promise((resolve, reject) => {
+    const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const ports = (template.ingress_ports || [])
+      .map(p => `-p ${p}:${p}/udp`)
+      .join(' ');
+    const cmds = [
+      'sudo yum install -y docker',
+      'sudo service docker start',
+      'sudo mkdir -p /opt/factorio'
+    ];
+    if (backupFile) {
+      const header = process.env.BACKUP_DOWNLOAD_AUTH_HEADER || '';
+      const base = process.env.BACKUP_DOWNLOAD_URL || '';
+      cmds.push(
+        `curl -L ${header ? `-H \"${header}\"` : ''} \"${base}/${backupFile}\" | tar xj -C /opt/factorio`
+      );
+    }
+    cmds.push(
+      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
+    );
+    const cmd = cmds.join(' && ');
+    ssh.exec(cmd, (err, stream) => {
+      if (err) {
+        ssh.end();
+        return reject(err);
+      }
+      stream.on('close', () => {
+        ssh.end();
+        resolve();
       });
-    }).on('error', reject).connect({
-      host: ip,
-      username: 'ec2-user',
-      privateKey: fs.readFileSync(key),
-      hostVerifier: () => true
+    });
+  });
+}
+
+async function sshExec(ip, command) {
+  const ssh = await connectSSH(ip);
+  return new Promise((resolve, reject) => {
+    let out = '';
+    ssh.exec(command, (err, stream) => {
+      if (err) {
+        ssh.end();
+        return reject(err);
+      }
+      stream.on('data', d => { out += d.toString(); });
+      stream.stderr.on('data', d => { out += d.toString(); });
+      stream.on('close', () => {
+        ssh.end();
+        resolve(out.trim());
+      });
     });
   });
 }
