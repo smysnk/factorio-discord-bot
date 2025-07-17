@@ -20,7 +20,7 @@ const {
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
 
-function debug(...args) {
+function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
     const ts = new Date().toISOString();
     console.log(ts, ...args);
@@ -52,7 +52,7 @@ async function ensureBucketRegion() {
       );
       awsConfig.region = resp.LocationConstraint || 'us-east-1';
       s3 = new S3Client(awsConfig);
-      debug('Detected bucket region', awsConfig.region);
+      log('Detected bucket region', awsConfig.region);
     } catch {
       // fall back to default region
     }
@@ -60,7 +60,7 @@ async function ensureBucketRegion() {
 }
 
 async function findRunningInstance() {
-  debug('Searching for running EC2 instance');
+  log('Searching for running EC2 instance');
   const filters = [
     { Name: 'instance-state-name', Values: ['pending', 'running'] }
   ];
@@ -70,23 +70,23 @@ async function findRunningInstance() {
   const resp = await ec2.send(new DescribeInstancesCommand({ Filters: filters }));
   for (const res of resp.Reservations || []) {
     for (const inst of res.Instances || []) {
-      debug('Found running instance', inst.InstanceId);
+      log('Found running instance', inst.InstanceId);
       return inst;
     }
   }
-  debug('No running instance found');
+  log('No running instance found');
   return null;
 }
 
 async function ensureSecurityGroup() {
-  debug('Ensuring security group', template.security_group_name);
+  log('Ensuring security group', template.security_group_name);
   const resp = await ec2.send(
     new DescribeSecurityGroupsCommand({
       Filters: [{ Name: 'group-name', Values: [template.security_group_name] }]
     })
   );
   if (resp.SecurityGroups && resp.SecurityGroups.length) {
-    debug('Using existing security group', resp.SecurityGroups[0].GroupId);
+    log('Using existing security group', resp.SecurityGroups[0].GroupId);
     return resp.SecurityGroups[0].GroupId;
   }
   const create = await ec2.send(
@@ -96,9 +96,9 @@ async function ensureSecurityGroup() {
     })
   );
   const sgId = create.GroupId;
-  debug('Created security group', sgId);
+  log('Created security group', sgId);
   if (template.ingress_ports && template.ingress_ports.length) {
-    debug('Authorizing ingress ports', template.ingress_ports.join(','));
+    log('Authorizing ingress ports', template.ingress_ports.join(','));
     await ec2.send(
       new AuthorizeSecurityGroupIngressCommand({
         GroupId: sgId,
@@ -110,7 +110,7 @@ async function ensureSecurityGroup() {
     );
   }
   if (template.egress_ports && template.egress_ports.length) {
-    debug('Authorizing egress traffic');
+    log('Authorizing egress traffic');
     await ec2.send(
       new AuthorizeSecurityGroupEgressCommand({
         GroupId: sgId,
@@ -127,7 +127,7 @@ async function ensureSecurityGroup() {
 }
 
 async function launchInstance(sgId, saveLabel) {
-  debug('Launching EC2 instance');
+  log('Launching EC2 instance');
   const tags = Object.entries(template.tags).map(([Key, Value]) => ({ Key, Value }));
   if (saveLabel) {
     tags.push({ Key: 'SaveName', Value: saveLabel });
@@ -145,21 +145,21 @@ async function launchInstance(sgId, saveLabel) {
     MinCount: 1,
     MaxCount: 1
   }));
-  debug('Instance launched', resp.Instances[0].InstanceId);
+  log('Instance launched', resp.Instances[0].InstanceId);
   return resp.Instances[0].InstanceId;
 }
 
 async function waitForInstance(id) {
-  debug('Waiting for instance', id, 'to become ready');
+  log('Waiting for instance', id, 'to become ready');
   await waitUntilInstanceRunning({ client: ec2, maxWaitTime: 300 }, { InstanceIds: [id] });
   const desc = await ec2.send(new DescribeInstancesCommand({ InstanceIds: [id] }));
   const ip = desc.Reservations[0].Instances[0].PublicIpAddress;
-  debug('Instance ready with IP', ip);
+  log('Instance ready with IP', ip);
   return ip;
 }
 
 function waitForPing(ip) {
-  debug('Waiting for ping on', ip);
+  log('Waiting for ping on', ip);
   return new Promise(resolve => {
     const check = () => {
       cp.exec(`ping -c 1 ${ip}`, err => {
@@ -176,13 +176,13 @@ function connectSSH(ip, attempts = 10) {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
     await waitForPing(ip);
-    debug('Connecting via SSH to', ip);
+    log('Connecting via SSH to', ip);
     const tryConnect = n => {
       const ssh = new SSHClient();
       ssh
         .on('ready', () => resolve(ssh))
         .on('error', err => {
-          debug('SSH connection error', err.message);
+          log('SSH connection error', err.message);
           ssh.end();
           if (n <= 1) return reject(err);
           setTimeout(() => tryConnect(n - 1), 2000);
@@ -198,7 +198,7 @@ function connectSSH(ip, attempts = 10) {
 }
 
 async function sshAndSetup(ip, backupFile) {
-  debug('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
+  log('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
@@ -226,7 +226,11 @@ async function sshAndSetup(ip, backupFile) {
         ssh.end();
         return reject(err);
       }
+      let out = '';
+      stream.on('data', d => { out += d.toString(); });
+      stream.stderr.on('data', d => { out += d.toString(); });
       stream.on('close', () => {
+        log(out.trim());
         ssh.end();
         resolve();
       });
@@ -235,7 +239,7 @@ async function sshAndSetup(ip, backupFile) {
 }
 
 async function sshExec(ip, command) {
-  debug('sshExec', ip, command);
+  log('sshExec', ip, command);
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     let out = '';
@@ -247,6 +251,7 @@ async function sshExec(ip, command) {
       stream.on('data', d => { out += d.toString(); });
       stream.stderr.on('data', d => { out += d.toString(); });
       stream.on('close', () => {
+        log(out.trim());
         ssh.end();
         resolve(out.trim());
       });
@@ -256,7 +261,7 @@ async function sshExec(ip, command) {
 
 async function listBackups() {
   await ensureBucketRegion();
-  debug('Listing backups from', process.env.BACKUP_BUCKET, 'in', awsConfig.region);
+  log('Listing backups from', process.env.BACKUP_BUCKET, 'in', awsConfig.region);
   try {
     const resp = await s3.send(
       new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
@@ -267,14 +272,14 @@ async function listBackups() {
       const region = err.BucketRegion || err.Region;
       if (region) {
         awsConfig.region = region;
-        debug('S3 redirect, switching region to', region);
+        log('S3 redirect, switching region to', region);
       } else {
         const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
         const r = await tmp.send(
           new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
         );
         awsConfig.region = r.LocationConstraint || 'us-east-1';
-        debug('Fetched bucket region', awsConfig.region);
+        log('Fetched bucket region', awsConfig.region);
       }
       s3 = new S3Client(awsConfig);
       const resp = await s3.send(
@@ -329,7 +334,7 @@ function backupCommands(name) {
   const uploadBase = process.env.BACKUP_UPLOAD_URL || '';
   const header = process.env.BACKUP_UPLOAD_AUTH_HEADER || '';
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
-  debug('Backup command for', name);
+  log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
     `tar cjf /tmp/${file} -C /opt factorio && ` +
@@ -346,7 +351,7 @@ function parseBackupKey(key) {
 }
 
 async function listBackupNames() {
-  debug('Listing backup names');
+  log('Listing backup names');
   const objects = await listBackups();
   const names = new Set();
   for (const o of objects) {
@@ -357,7 +362,7 @@ async function listBackupNames() {
 }
 
 async function getLatestBackupFile(name) {
-  debug('Fetching latest backup for', name);
+  log('Fetching latest backup for', name);
   const objects = await listBackups();
   const filtered = objects
     .map(o => ({ meta: parseBackupKey(o.Key), obj: o }))
@@ -388,7 +393,7 @@ function formatBackupTree(objects) {
 
 async function getSystemStats(ip) {
   try {
-    debug('Gathering system stats from', ip);
+    log('Gathering system stats from', ip);
     const load = await sshExec(ip, 'cat /proc/loadavg');
     const mem = await sshExec(
       ip,
@@ -399,10 +404,10 @@ async function getSystemStats(ip) {
       `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
     );
     const result = { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
-    debug('Stats', result);
+    log('Stats', result);
     return result;
   } catch (e) {
-    debug('Failed to get stats', e.message);
+    log('Failed to get stats', e.message);
     return {};
   }
 }
@@ -435,7 +440,7 @@ async function sendDiscordMessage(interaction, method, content, options = {}) {
     return;
   }
   const parts = splitMessage(content);
-  debug('Sending', parts.length, 'message part(s) via', method);
+  log('Sending', parts.length, 'message part(s) via', method);
   for (let i = 0; i < parts.length; i++) {
     const payload = { ...options, content: parts[i] };
     if (i === 0) {
@@ -453,12 +458,12 @@ function sendReply(interaction, content, options) {
   } else if (interaction.replied) {
     method = 'followUp';
   }
-  debug('sendReply using', method);
+  log('sendReply using', method);
   return sendDiscordMessage(interaction, method, content, options);
 }
 
 const sendFollowUp = (interaction, content, options) => {
-  debug('sendFollowUp');
+  log('sendFollowUp');
   return sendDiscordMessage(interaction, 'followUp', content, options);
 };
 
@@ -485,5 +490,5 @@ module.exports = {
   TerminateInstancesCommand,
   sendReply,
   sendFollowUp,
-  debug
+  log
 };

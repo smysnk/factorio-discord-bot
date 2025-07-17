@@ -1,10 +1,10 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply } = require('../lib');
+const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder().setName('status').setDescription('Get server status'),
   async execute(interaction) {
-    require('../lib').debug('status command invoked');
+    log('status command invoked');
     await interaction.deferReply();
     const inst = await findRunningInstance();
     if (inst) {
@@ -23,7 +23,7 @@ module.exports = {
       };
       const table = formatMetadata(meta);
       await sendReply(interaction, table || 'No data');
-      require('../lib').debug('status command completed');
+      log('status command completed');
     } else {
       await sendReply(interaction, 'No running servers');
     }

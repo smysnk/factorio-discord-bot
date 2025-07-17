@@ -1,7 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { sendReply, sendFollowUp, debug } = require('./lib');
+const { sendReply, log } = require('./lib');
 const path = require('path');
 
 const channelId = process.env.DISCORD_CHANNEL_ID;
@@ -18,7 +18,7 @@ for (const file of commandFiles) {
 }
 
 bot.once(Events.ClientReady, async () => {
-  debug(`Logged in as ${bot.user.tag}`);
+  log(`Logged in as ${bot.user.tag}`);
   const data = Array.from(commands.values()).map(c => c.data.toJSON());
   if (guildId) {
     await bot.application.commands.set(data, guildId);
@@ -30,7 +30,7 @@ bot.once(Events.ClientReady, async () => {
 bot.on(Events.InteractionCreate, async interaction => {
   if (interaction.channelId !== channelId) return;
 
-  debug('Received interaction', interaction.commandName);
+  log('Received interaction', interaction.commandName);
 
   const command = commands.get(interaction.commandName);
   if (!command) return;
@@ -46,10 +46,10 @@ bot.on(Events.InteractionCreate, async interaction => {
 
   try {
     await command.execute(interaction);
-    debug('Command executed', interaction.commandName);
+    log('Command executed', interaction.commandName);
   } catch (err) {
     console.error(err);
-    debug('Interaction error', err.message);
+    log('Interaction error', err.message);
     const msg = 'Error: ' + err.message;
     await sendReply(interaction, msg, { ephemeral: true });
   }

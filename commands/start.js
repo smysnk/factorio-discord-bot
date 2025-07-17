@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const lib = require('../lib');
+const { log } = lib;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,7 +16,7 @@ module.exports = {
     await interaction.respond(filtered.map(n => ({ name: n, value: n })));
   },
   async execute(interaction) {
-    lib.debug('start command invoked');
+    log('start command invoked');
     await interaction.deferReply();
     await lib.sendReply(interaction, 'Checking for existing server...');
     const existing = await lib.findRunningInstance();
@@ -36,6 +37,6 @@ module.exports = {
     );
     await lib.sshAndSetup(ip, backupFile);
     await lib.sendFollowUp(interaction, `Factorio server running at ${ip}`);
-    lib.debug('start command completed');
+    log('start command completed');
   }
 };

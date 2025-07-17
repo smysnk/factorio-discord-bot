@@ -1,10 +1,10 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { ec2, state, findRunningInstance, sshExec, backupCommands, TerminateInstancesCommand, DescribeInstancesCommand, sendReply, sendFollowUp } = require('../lib');
+const { ec2, state, findRunningInstance, sshExec, backupCommands, TerminateInstancesCommand, DescribeInstancesCommand, sendReply, sendFollowUp, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder().setName('stop').setDescription('Stop the Factorio server'),
   async execute(interaction) {
-    require('../lib').debug('stop command invoked');
+    log('stop command invoked');
     await interaction.deferReply();
     let inst = state.instanceId
       ? (await ec2.send(new DescribeInstancesCommand({ InstanceIds: [state.instanceId] }))).Reservations[0].Instances[0]
@@ -23,6 +23,6 @@ module.exports = {
     await ec2.send(new TerminateInstancesCommand({ InstanceIds: [inst.InstanceId] }));
     state.instanceId = null;
     await sendFollowUp(interaction, 'Server terminated');
-    require('../lib').debug('stop command completed');
+    log('stop command completed');
   }
 };
