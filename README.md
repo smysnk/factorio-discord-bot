@@ -27,5 +27,7 @@ The bot uses slash commands which are registered automatically on startup. Use
 `/start` to launch the server, optionally selecting a prior backup name to
 restore. The `/save` and `/stop` commands create a dated archive and player data
 file which are uploaded via the configured URLs before shutting down (for
-`/stop`). Use `DISCORD_CHANNEL_ID` to restrict the channel and
-`DISCORD_GUILD_ID` to limit registration to a single guild.
+`/stop`). The `/sync` command attempts to pull from the configured git remote
+and, if no merge conflicts occur, pushes your local branch. Use
+`DISCORD_CHANNEL_ID` to restrict the channel and `DISCORD_GUILD_ID` to limit
+registration to a single guild.
