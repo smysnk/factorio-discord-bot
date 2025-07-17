@@ -316,8 +316,14 @@ function formatBackupTree(objects) {
 async function getSystemStats(ip) {
   try {
     const load = await sshExec(ip, 'cat /proc/loadavg');
-    const mem = await sshExec(ip, "free -m | awk '/Mem:/ {print \"3\"/\"$2\" MB\"}'");
-    const disk = await sshExec(ip, "df -h /opt/factorio | tail -1 | awk '{print \"$3\"/\"$2\" used'}");
+    const mem = await sshExec(
+      ip,
+      `free -m | awk '/Mem:/ {print $3"/"$2" MB"}'`
+    );
+    const disk = await sshExec(
+      ip,
+      `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
+    );
     return { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
   } catch (e) {
     return {};
