@@ -13,6 +13,7 @@ This project contains a simple Discord bot that can manage a Factorio game serve
    accept authenticated `curl` uploads and downloads. Provide the matching
    `BACKUP_UPLOAD_AUTH_HEADER` and `BACKUP_DOWNLOAD_AUTH_HEADER` values to
    include in the requests.
+5. Set `DEBUG_LOG=1` to print time-stamped debugging output to the console. The bot logs major actions and command events when this flag is enabled.
 
 ## Running the Bot
 

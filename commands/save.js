@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { ec2, findRunningInstance, sshExec, backupCommands, CreateTagsCommand } = require('../lib');
+const { ec2, findRunningInstance, sshExec, backupCommands, CreateTagsCommand, sendReply, sendFollowUp, listBackups, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -8,7 +8,7 @@ module.exports = {
     .addStringOption(o => o.setName('name').setDescription('Save name').setAutocomplete(true).setRequired(true)),
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused();
-    const backups = await require('../lib').listBackups();
+    const backups = await listBackups();
     const filtered = backups
       .map(o => o.Key)
       .filter(b => b.startsWith(focused))
@@ -16,18 +16,21 @@ module.exports = {
     await interaction.respond(filtered.map(b => ({ name: b, value: b })));
   },
   async execute(interaction) {
+    log('save command invoked');
+    await interaction.deferReply();
     const inst = await findRunningInstance();
     if (!inst) {
-      await interaction.reply('No running server');
+      await sendReply(interaction, 'No running server');
       return;
     }
     const name = interaction.options.getString('name');
     const ip = inst.PublicIpAddress;
     await ec2.send(new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] }));
-    await interaction.reply(`Saving as ${name}...`);
+    await sendReply(interaction, `Saving as ${name}...`);
     if (ip) {
       await sshExec(ip, backupCommands(name));
     }
-    await interaction.followUp('Save complete');
+    await sendFollowUp(interaction, 'Save complete');
+    log('save command completed');
   }
 };

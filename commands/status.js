@@ -1,9 +1,11 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { template, findRunningInstance, getSystemStats, formatMetadata } = require('../lib');
+const { template, findRunningInstance, getSystemStats, formatMetadata, sendReply, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder().setName('status').setDescription('Get server status'),
   async execute(interaction) {
+    log('status command invoked');
+    await interaction.deferReply();
     const inst = await findRunningInstance();
     if (inst) {
       const ip = inst.PublicIpAddress;
@@ -20,9 +22,10 @@ module.exports = {
         'Disk /opt/factorio': stats.disk
       };
       const table = formatMetadata(meta);
-      await interaction.reply(table || 'No data');
+      await sendReply(interaction, table || 'No data');
+      log('status command completed');
     } else {
-      await interaction.reply('No running servers');
+      await sendReply(interaction, 'No running servers');
     }
   }
 };

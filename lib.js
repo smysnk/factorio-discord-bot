@@ -13,8 +13,19 @@ const {
   AuthorizeSecurityGroupEgressCommand,
   waitUntilInstanceRunning
 } = require('@aws-sdk/client-ec2');
-const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const {
+  S3Client,
+  ListObjectsV2Command,
+  GetBucketLocationCommand
+} = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
+
+function log(...args) {
+  if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
+    const ts = new Date().toISOString();
+    console.log(ts, ...args);
+  }
+}
 
 const templatePath = process.env.EC2_TEMPLATE || 'ec2_template.json';
 const template = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
@@ -28,11 +39,28 @@ const awsConfig = {
 };
 
 const ec2 = new EC2Client(awsConfig);
-const s3 = new S3Client(awsConfig);
+let s3 = new S3Client(awsConfig);
 
 const state = { instanceId: null };
 
+async function ensureBucketRegion() {
+  if (!awsConfig.region) {
+    const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
+    try {
+      const resp = await tmp.send(
+        new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
+      );
+      awsConfig.region = resp.LocationConstraint || 'us-east-1';
+      s3 = new S3Client(awsConfig);
+      log('Detected bucket region', awsConfig.region);
+    } catch {
+      // fall back to default region
+    }
+  }
+}
+
 async function findRunningInstance() {
+  log('Searching for running EC2 instance');
   const filters = [
     { Name: 'instance-state-name', Values: ['pending', 'running'] }
   ];
@@ -42,19 +70,23 @@ async function findRunningInstance() {
   const resp = await ec2.send(new DescribeInstancesCommand({ Filters: filters }));
   for (const res of resp.Reservations || []) {
     for (const inst of res.Instances || []) {
+      log('Found running instance', inst.InstanceId);
       return inst;
     }
   }
+  log('No running instance found');
   return null;
 }
 
 async function ensureSecurityGroup() {
+  log('Ensuring security group', template.security_group_name);
   const resp = await ec2.send(
     new DescribeSecurityGroupsCommand({
       Filters: [{ Name: 'group-name', Values: [template.security_group_name] }]
     })
   );
   if (resp.SecurityGroups && resp.SecurityGroups.length) {
+    log('Using existing security group', resp.SecurityGroups[0].GroupId);
     return resp.SecurityGroups[0].GroupId;
   }
   const create = await ec2.send(
@@ -64,7 +96,9 @@ async function ensureSecurityGroup() {
     })
   );
   const sgId = create.GroupId;
+  log('Created security group', sgId);
   if (template.ingress_ports && template.ingress_ports.length) {
+    log('Authorizing ingress ports', template.ingress_ports.join(','));
     await ec2.send(
       new AuthorizeSecurityGroupIngressCommand({
         GroupId: sgId,
@@ -76,6 +110,7 @@ async function ensureSecurityGroup() {
     );
   }
   if (template.egress_ports && template.egress_ports.length) {
+    log('Authorizing egress traffic');
     await ec2.send(
       new AuthorizeSecurityGroupEgressCommand({
         GroupId: sgId,
@@ -92,6 +127,7 @@ async function ensureSecurityGroup() {
 }
 
 async function launchInstance(sgId, saveLabel) {
+  log('Launching EC2 instance');
   const tags = Object.entries(template.tags).map(([Key, Value]) => ({ Key, Value }));
   if (saveLabel) {
     tags.push({ Key: 'SaveName', Value: saveLabel });
@@ -109,16 +145,21 @@ async function launchInstance(sgId, saveLabel) {
     MinCount: 1,
     MaxCount: 1
   }));
+  log('Instance launched', resp.Instances[0].InstanceId);
   return resp.Instances[0].InstanceId;
 }
 
 async function waitForInstance(id) {
+  log('Waiting for instance', id, 'to become ready');
   await waitUntilInstanceRunning({ client: ec2, maxWaitTime: 300 }, { InstanceIds: [id] });
   const desc = await ec2.send(new DescribeInstancesCommand({ InstanceIds: [id] }));
-  return desc.Reservations[0].Instances[0].PublicIpAddress;
+  const ip = desc.Reservations[0].Instances[0].PublicIpAddress;
+  log('Instance ready with IP', ip);
+  return ip;
 }
 
 function waitForPing(ip) {
+  log('Waiting for ping on', ip);
   return new Promise(resolve => {
     const check = () => {
       cp.exec(`ping -c 1 ${ip}`, err => {
@@ -135,12 +176,13 @@ function connectSSH(ip, attempts = 10) {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
     await waitForPing(ip);
+    log('Connecting via SSH to', ip);
     const tryConnect = n => {
       const ssh = new SSHClient();
       ssh
         .on('ready', () => resolve(ssh))
         .on('error', err => {
-          console.log(err);
+          log('SSH connection error', err.message);
           ssh.end();
           if (n <= 1) return reject(err);
           setTimeout(() => tryConnect(n - 1), 2000);
@@ -156,6 +198,7 @@ function connectSSH(ip, attempts = 10) {
 }
 
 async function sshAndSetup(ip, backupFile) {
+  log('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
@@ -183,7 +226,11 @@ async function sshAndSetup(ip, backupFile) {
         ssh.end();
         return reject(err);
       }
+      let out = '';
+      stream.on('data', d => { out += d.toString(); });
+      stream.stderr.on('data', d => { out += d.toString(); });
       stream.on('close', () => {
+        log(out.trim());
         ssh.end();
         resolve();
       });
@@ -192,6 +239,7 @@ async function sshAndSetup(ip, backupFile) {
 }
 
 async function sshExec(ip, command) {
+  log('sshExec', ip, command);
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     let out = '';
@@ -203,6 +251,7 @@ async function sshExec(ip, command) {
       stream.on('data', d => { out += d.toString(); });
       stream.stderr.on('data', d => { out += d.toString(); });
       stream.on('close', () => {
+        log(out.trim());
         ssh.end();
         resolve(out.trim());
       });
@@ -211,10 +260,35 @@ async function sshExec(ip, command) {
 }
 
 async function listBackups() {
-  const resp = await s3.send(
-    new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
-  );
-  return resp.Contents || [];
+  await ensureBucketRegion();
+  log('Listing backups from', process.env.BACKUP_BUCKET, 'in', awsConfig.region);
+  try {
+    const resp = await s3.send(
+      new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
+    );
+    return resp.Contents || [];
+  } catch (err) {
+    if (err.Code === 'PermanentRedirect') {
+      const region = err.BucketRegion || err.Region;
+      if (region) {
+        awsConfig.region = region;
+        log('S3 redirect, switching region to', region);
+      } else {
+        const tmp = new S3Client({ ...awsConfig, region: 'us-east-1' });
+        const r = await tmp.send(
+          new GetBucketLocationCommand({ Bucket: process.env.BACKUP_BUCKET })
+        );
+        awsConfig.region = r.LocationConstraint || 'us-east-1';
+        log('Fetched bucket region', awsConfig.region);
+      }
+      s3 = new S3Client(awsConfig);
+      const resp = await s3.send(
+        new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
+      );
+      return resp.Contents || [];
+    }
+    throw err;
+  }
 }
 
 function flattenMetadata(obj, prefix = '') {
@@ -238,18 +312,9 @@ function formatMetadata(metadata) {
   if (!metadata || Object.keys(metadata).length === 0) {
     return undefined;
   }
-  const rows = flattenMetadata(metadata).map(([k, v]) => [k, formatValue(v)]);
-  const headers = ['Key', 'Value'];
-  const col1 = Math.max(headers[0].length, ...rows.map(r => r[0].length));
-  const col2 = Math.max(headers[1].length, ...rows.map(r => r[1].length));
-  const sep = `+${'-'.repeat(col1 + 2)}+${'-'.repeat(col2 + 2)}+`;
-  const lines = [
-    sep,
-    `| ${headers[0].padEnd(col1)} | ${headers[1].padEnd(col2)} |`,
-    sep,
-    ...rows.map(r => `| ${r[0].padEnd(col1)} | ${r[1].padEnd(col2)} |`),
-    sep,
-  ];
+  const lines = flattenMetadata(metadata).map(
+    ([k, v]) => `${k}: ${formatValue(v)}`
+  );
   return '```\n' + lines.join('\n') + '\n```';
 }
 
@@ -268,10 +333,12 @@ function backupCommands(name) {
   const jsonFile = `${name}.${currentDateString()}.json`;
   const uploadBase = process.env.BACKUP_UPLOAD_URL || '';
   const header = process.env.BACKUP_UPLOAD_AUTH_HEADER || '';
+  const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
+  log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
     `tar cjf /tmp/${file} -C /opt factorio && ` +
-    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile} && ` +
+    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `curl -H \"${header}\" -T /tmp/${file} \"${uploadBase}/${file}\" && ` +
     `rm /tmp/${file} && sudo docker start factorio`
   );
@@ -284,6 +351,7 @@ function parseBackupKey(key) {
 }
 
 async function listBackupNames() {
+  log('Listing backup names');
   const objects = await listBackups();
   const names = new Set();
   for (const o of objects) {
@@ -294,6 +362,7 @@ async function listBackupNames() {
 }
 
 async function getLatestBackupFile(name) {
+  log('Fetching latest backup for', name);
   const objects = await listBackups();
   const filtered = objects
     .map(o => ({ meta: parseBackupKey(o.Key), obj: o }))
@@ -324,14 +393,79 @@ function formatBackupTree(objects) {
 
 async function getSystemStats(ip) {
   try {
+    log('Gathering system stats from', ip);
     const load = await sshExec(ip, 'cat /proc/loadavg');
-    const mem = await sshExec(ip, "free -m | awk '/Mem:/ {print \"3\"/\"$2\" MB\"}'");
-    const disk = await sshExec(ip, "df -h /opt/factorio | tail -1 | awk '{print \"$3\"/\"$2\" used'}");
-    return { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
+    const mem = await sshExec(
+      ip,
+      `free -m | awk '/Mem:/ {print $3"/"$2" MB"}'`
+    );
+    const disk = await sshExec(
+      ip,
+      `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
+    );
+    const result = { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
+    log('Stats', result);
+    return result;
   } catch (e) {
+    log('Failed to get stats', e.message);
     return {};
   }
 }
+
+function splitMessage(text, limit = 2000) {
+  if (text.length <= limit) return [text];
+  let wrap = false;
+  if (text.startsWith('```') && text.endsWith('```')) {
+    wrap = true;
+    text = text.slice(3, -3).trim();
+    limit -= 6;
+  }
+  const lines = text.split('\n');
+  const chunks = [];
+  let buf = '';
+  for (const line of lines) {
+    if ((buf + line + '\n').length > limit) {
+      chunks.push(buf.trimEnd());
+      buf = '';
+    }
+    buf += line + '\n';
+  }
+  if (buf) chunks.push(buf.trimEnd());
+  return wrap ? chunks.map(c => '```\n' + c + '\n```') : chunks;
+}
+
+async function sendDiscordMessage(interaction, method, content, options = {}) {
+  if (typeof content !== 'string') {
+    await interaction[method](content);
+    return;
+  }
+  const parts = splitMessage(content);
+  log('Sending', parts.length, 'message part(s) via', method);
+  for (let i = 0; i < parts.length; i++) {
+    const payload = { ...options, content: parts[i] };
+    if (i === 0) {
+      await interaction[method](payload);
+    } else {
+      await interaction.followUp(payload);
+    }
+  }
+}
+
+function sendReply(interaction, content, options) {
+  let method = 'reply';
+  if (interaction.deferred && !interaction.replied) {
+    method = 'editReply';
+  } else if (interaction.replied) {
+    method = 'followUp';
+  }
+  log('sendReply using', method);
+  return sendDiscordMessage(interaction, method, content, options);
+}
+
+const sendFollowUp = (interaction, content, options) => {
+  log('sendFollowUp');
+  return sendDiscordMessage(interaction, 'followUp', content, options);
+};
 
 module.exports = {
   ec2,
@@ -353,5 +487,8 @@ module.exports = {
   getSystemStats,
   CreateTagsCommand,
   DescribeInstancesCommand,
-  TerminateInstancesCommand
+  TerminateInstancesCommand,
+  sendReply,
+  sendFollowUp,
+  log
 };
