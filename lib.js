@@ -211,10 +211,9 @@ async function sshAndSetup(ip, backupFile) {
       'sudo mkdir -p /opt/factorio'
     ];
     if (backupFile) {
-      const header = process.env.BACKUP_DOWNLOAD_AUTH_HEADER || '';
-      const base = process.env.BACKUP_DOWNLOAD_URL || '';
+      const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
       cmds.push(
-        `curl -L ${header ? `-H \"${header}\"` : ''} \"${base}/${backupFile}\" | tar xj -C /opt/factorio`
+        `aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile} -${regionFlag} | tar xj -C /opt/factorio`
       );
     }
     cmds.push(
@@ -331,15 +330,13 @@ function backupFilename(name) {
 function backupCommands(name) {
   const file = backupFilename(name);
   const jsonFile = `${name}.${currentDateString()}.json`;
-  const uploadBase = process.env.BACKUP_UPLOAD_URL || '';
-  const header = process.env.BACKUP_UPLOAD_AUTH_HEADER || '';
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
     `tar cjf /tmp/${file} -C /opt factorio && ` +
     `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
-    `curl -H \"${header}\" -T /tmp/${file} \"${uploadBase}/${file}\" && ` +
+    `aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
     `rm /tmp/${file} && sudo docker start factorio`
   );
 }
