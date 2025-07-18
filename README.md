@@ -10,7 +10,9 @@ This project contains a simple Discord bot that can manage a Factorio game serve
 3. Set `DOCKER_IMAGE` to the Factorio Docker image you wish to run
    (e.g. `factoriotools/factorio:latest`).
 4. Ensure `BACKUP_BUCKET` is an accessible S3 bucket. Backups are uploaded and
-   restored using `aws s3 cp`.
+   restored using `aws s3 cp`. The commands include your `AWS_ACCESS_KEY_ID`
+   and `AWS_SECRET_ACCESS_KEY` from `.env` so the remote instance can access the
+   bucket.
 5. Set `DEBUG_LOG=1` to print time-stamped debugging output to the console. The bot logs major actions and command events when this flag is enabled.
 
 ## Running the Bot

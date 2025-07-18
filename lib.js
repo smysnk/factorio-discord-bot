@@ -212,8 +212,9 @@ async function sshAndSetup(ip, backupFile) {
     ];
     if (backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
+      const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
       cmds.push(
-        `aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile} -${regionFlag} | tar xj -C /opt/factorio`
+        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} | tar xj -C /opt/factorio`
       );
     }
     cmds.push(
@@ -331,12 +332,13 @@ function backupCommands(name) {
   const file = backupFilename(name);
   const jsonFile = `${name}.${currentDateString()}.json`;
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
+  const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
     `tar cjf /tmp/${file} -C /opt factorio && ` +
-    `aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
-    `aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
+    `${creds} aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
+    `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
     `rm /tmp/${file} && sudo docker start factorio`
   );
 }
