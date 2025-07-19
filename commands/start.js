@@ -33,7 +33,7 @@ module.exports = {
     const backupFile = saveLabel ? await lib.getLatestBackupFile(saveLabel) : null;
     await lib.sendFollowUp(
       interaction,
-      `Instance launched with IP ${ip}${backupFile ? ', restoring backup...' : ', installing docker...'}`
+      `Instance launched with IP ${ip}${backupFile ? `, restoring backup ${saveLabel}...` : ', installing docker...'}`
     );
     await lib.sshAndSetup(ip, backupFile);
     await lib.sendFollowUp(interaction, `Factorio server running at ${ip}`);
