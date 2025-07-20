@@ -16,7 +16,8 @@ const {
 const {
   S3Client,
   ListObjectsV2Command,
-  GetBucketLocationCommand
+  GetBucketLocationCommand,
+  GetObjectCommand
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
 
@@ -214,7 +215,7 @@ async function sshAndSetup(ip, backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
       const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
       cmds.push(
-        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile} -${regionFlag} | tar xj -C /opt/factorio`
+        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} - | sudo tar xj -C /opt`
       );
     }
     cmds.push(
@@ -336,10 +337,11 @@ function backupCommands(name) {
   log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
-    `tar cjf /tmp/${file} -C /opt factorio && ` +
+    `sudo rm -rf /tmp/${file} &&` +
+    `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
     `${creds} aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
-    `rm /tmp/${file} && sudo docker start factorio`
+    `sudo rm /tmp/${file} && sudo docker start factorio`
   );
 }
 
@@ -370,6 +372,22 @@ async function getLatestBackupFile(name) {
   return filtered.length ? filtered[0].obj.Key : null;
 }
 
+async function getBackupJson(id) {
+  await ensureBucketRegion();
+  const key = `${id}.json`;
+  log('Fetching backup json', key);
+  try {
+    const resp = await s3.send(
+      new GetObjectCommand({ Bucket: process.env.BACKUP_BUCKET, Key: key })
+    );
+    const text = await streamToString(resp.Body);
+    return JSON.parse(text);
+  } catch (e) {
+    log('Failed to fetch backup json', e.message);
+    return null;
+  }
+}
+
 function formatBackupTree(objects) {
   const map = new Map();
   for (const o of objects) {
@@ -390,7 +408,7 @@ function formatBackupTree(objects) {
   return '```\n' + lines.join('\n') + '\n```';
 }
 
-async function getSystemStats(ip) {
+  async function getSystemStats(ip) {
   try {
     log('Gathering system stats from', ip);
     const load = await sshExec(ip, 'cat /proc/loadavg');
@@ -409,9 +427,17 @@ async function getSystemStats(ip) {
     log('Failed to get stats', e.message);
     return {};
   }
+  }
+
+async function streamToString(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
-function splitMessage(text, limit = 2000) {
+  function splitMessage(text, limit = 2000) {
   if (text.length <= limit) return [text];
   let wrap = false;
   if (text.startsWith('```') && text.endsWith('```')) {
@@ -481,6 +507,8 @@ module.exports = {
   listBackups,
   listBackupNames,
   getLatestBackupFile,
+  getBackupJson,
+  parseBackupKey,
   formatBackupTree,
   formatMetadata,
   getSystemStats,
