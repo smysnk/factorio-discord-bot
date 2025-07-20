@@ -346,7 +346,7 @@ function formatMetadata(metadata) {
 function currentDateString() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}.${pad(d.getHours())}.${pad(d.getMinutes())}`;
 }
 
 function backupFilename(name) {
@@ -370,7 +370,7 @@ function backupCommands(name) {
 }
 
 function parseBackupKey(key) {
-  const m = key.match(/^(.*)\.(\d{4}\.\d{2}\.\d{2})\.tar\.bz2$/);
+  const m = key.match(/^(.*)\.(\d{4}\.\d{2}\.\d{2}(?:\.\d{2}\.\d{2})?)\.tar\.bz2$/);
   if (!m) return null;
   return { name: m[1], date: m[2] };
 }

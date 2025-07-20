@@ -28,5 +28,6 @@ The bot uses slash commands which are registered automatically on startup. Use
 `/start` to launch the server, optionally selecting a prior backup name to
 restore. The `/save` and `/stop` commands create a dated archive and player data
 file which are uploaded to the configured S3 bucket before shutting down (for
-`/stop`). Use `DISCORD_CHANNEL_ID` to restrict the channel and
+`/stop`). Backups are stored using filenames of the form
+`<name>.YYYY.MM.DD.HH.MM.tar.bz2`. Use `DISCORD_CHANNEL_ID` to restrict the channel and
 `DISCORD_GUILD_ID` to limit registration to a single guild.
