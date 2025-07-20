@@ -337,10 +337,11 @@ function backupCommands(name) {
   log('Backup command for', name);
   return (
     `sudo docker stop factorio && ` +
-    `tar cjf /tmp/${file} -C /opt factorio && ` +
+    `sudo rm -rf /tmp/${file} &&` +
+    `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
     `${creds} aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
-    `rm /tmp/${file} && sudo docker start factorio`
+    `sudo rm /tmp/${file} && sudo docker start factorio`
   );
 }
 
