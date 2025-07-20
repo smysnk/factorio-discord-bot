@@ -228,12 +228,24 @@ async function sshAndSetup(ip, backupFile) {
         return reject(err);
       }
       let out = '';
-      stream.on('data', d => { out += d.toString(); });
-      stream.stderr.on('data', d => { out += d.toString(); });
+      let exitCode = 0;
+      stream.on('data', d => {
+        out += d.toString();
+      });
+      stream.stderr.on('data', d => {
+        out += d.toString();
+      });
+      stream.on('exit', code => {
+        exitCode = code;
+      });
       stream.on('close', () => {
         log(out.trim());
         ssh.end();
-        resolve();
+        if (exitCode === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Remote setup failed with code ${exitCode}`));
+        }
       });
     });
   });
@@ -244,17 +256,29 @@ async function sshExec(ip, command) {
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     let out = '';
+    let exitCode = 0;
     ssh.exec(command, (err, stream) => {
       if (err) {
         ssh.end();
         return reject(err);
       }
-      stream.on('data', d => { out += d.toString(); });
-      stream.stderr.on('data', d => { out += d.toString(); });
+      stream.on('data', d => {
+        out += d.toString();
+      });
+      stream.stderr.on('data', d => {
+        out += d.toString();
+      });
+      stream.on('exit', code => {
+        exitCode = code;
+      });
       stream.on('close', () => {
         log(out.trim());
         ssh.end();
-        resolve(out.trim());
+        if (exitCode === 0) {
+          resolve(out.trim());
+        } else {
+          reject(new Error(`Remote command failed with code ${exitCode}`));
+        }
       });
     });
   });
