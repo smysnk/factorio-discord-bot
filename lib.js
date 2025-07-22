@@ -228,12 +228,24 @@ async function sshAndSetup(ip, backupFile) {
         return reject(err);
       }
       let out = '';
-      stream.on('data', d => { out += d.toString(); });
-      stream.stderr.on('data', d => { out += d.toString(); });
+      let exitCode = 0;
+      stream.on('data', d => {
+        out += d.toString();
+      });
+      stream.stderr.on('data', d => {
+        out += d.toString();
+      });
+      stream.on('exit', code => {
+        exitCode = code;
+      });
       stream.on('close', () => {
         log(out.trim());
         ssh.end();
-        resolve();
+        if (exitCode === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Remote setup failed with code ${exitCode}`));
+        }
       });
     });
   });
@@ -244,17 +256,29 @@ async function sshExec(ip, command) {
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
     let out = '';
+    let exitCode = 0;
     ssh.exec(command, (err, stream) => {
       if (err) {
         ssh.end();
         return reject(err);
       }
-      stream.on('data', d => { out += d.toString(); });
-      stream.stderr.on('data', d => { out += d.toString(); });
+      stream.on('data', d => {
+        out += d.toString();
+      });
+      stream.stderr.on('data', d => {
+        out += d.toString();
+      });
+      stream.on('exit', code => {
+        exitCode = code;
+      });
       stream.on('close', () => {
         log(out.trim());
         ssh.end();
-        resolve(out.trim());
+        if (exitCode === 0) {
+          resolve(out.trim());
+        } else {
+          reject(new Error(`Remote command failed with code ${exitCode}`));
+        }
       });
     });
   });
@@ -322,7 +346,7 @@ function formatMetadata(metadata) {
 function currentDateString() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}.${pad(d.getHours())}.${pad(d.getMinutes())}`;
 }
 
 function backupFilename(name) {
@@ -346,7 +370,7 @@ function backupCommands(name) {
 }
 
 function parseBackupKey(key) {
-  const m = key.match(/^(.*)\.(\d{4}\.\d{2}\.\d{2})\.tar\.bz2$/);
+  const m = key.match(/^(.*)\.(\d{4}\.\d{2}\.\d{2}(?:\.\d{2}\.\d{2})?)\.tar\.bz2$/);
   if (!m) return null;
   return { name: m[1], date: m[2] };
 }
