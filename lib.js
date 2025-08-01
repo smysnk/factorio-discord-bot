@@ -24,7 +24,13 @@ const { Client: SSHClient } = require('ssh2');
 function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
     const ts = new Date().toISOString();
-    console.log(ts, ...args);
+    const fmt = args.map(a => {
+      if (typeof a === 'string' && !a.startsWith('`') && !a.endsWith('`') && !a.includes(' ')) {
+        return `\`${a}\``;
+      }
+      return a;
+    });
+    console.log(ts, ...fmt);
   }
 }
 
@@ -300,7 +306,8 @@ async function listBackups() {
     const resp = await s3.send(
       new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
     );
-    return resp.Contents || [];
+    const list = resp.Contents || [];
+    return list.filter(o => !o.Key.endsWith('.json'));
   } catch (err) {
     if (err.Code === 'PermanentRedirect') {
       const region = err.BucketRegion || err.Region;
@@ -319,7 +326,8 @@ async function listBackups() {
       const resp = await s3.send(
         new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
       );
-      return resp.Contents || [];
+      const list = resp.Contents || [];
+      return list.filter(o => !o.Key.endsWith('.json'));
     }
     throw err;
   }

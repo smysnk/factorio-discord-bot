@@ -59,10 +59,10 @@ module.exports = {
       : null;
     await lib.sendFollowUp(
       interaction,
-      `Instance launched with IP ${ip}${backupFile ? `, restoring backup ${backup}...` : ', installing docker...'}`
+      `Instance launched with IP \`${ip}\`${backupFile ? `, restoring backup \`${backup}\`...` : ', installing docker...'}`
     );
     await lib.sshAndSetup(ip, backupFile, version);
-    await lib.sendFollowUp(interaction, `Factorio server running at ${ip}`);
+    await lib.sendFollowUp(interaction, `Factorio server running at \`${ip}\``);
     log('start command completed');
   }
 };
