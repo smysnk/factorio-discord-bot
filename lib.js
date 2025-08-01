@@ -198,11 +198,20 @@ function connectSSH(ip, attempts = 10) {
   });
 }
 
-async function sshAndSetup(ip, backupFile) {
-  log('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
+async function sshAndSetup(ip, backupFile, version) {
+  log(
+    'Setting up instance',
+    ip,
+    backupFile ? 'with backup ' + backupFile : '',
+    version ? 'version ' + version : ''
+  );
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
-    const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const baseImage = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const lastColon = baseImage.lastIndexOf(':');
+    const repo = lastColon === -1 ? baseImage : baseImage.slice(0, lastColon);
+    const defaultTag = lastColon === -1 ? 'latest' : baseImage.slice(lastColon + 1);
+    const image = `${repo}:${version || defaultTag}`;
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
