@@ -377,6 +377,7 @@ function backupCommands(name) {
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
   return (
+    `sudo docker exec factorio /opt/factorio/bin/rcon-cli /save && ` +
     `sudo docker stop factorio && ` +
     `sudo rm -rf /tmp/${file} &&` +
     `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
