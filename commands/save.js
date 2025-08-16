@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { ec2, findRunningInstance, sshExec, backupCommands, CreateTagsCommand, sendReply, sendFollowUp, listBackups, log } = require('../lib');
+const { ec2, findRunningInstance, sshExec, rconSave, backupCommands, CreateTagsCommand, sendReply, sendFollowUp, listBackups, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -28,6 +28,7 @@ module.exports = {
     await ec2.send(new CreateTagsCommand({ Resources: [inst.InstanceId], Tags: [{ Key: 'SaveName', Value: name }] }));
     await sendReply(interaction, `Saving as ${name}...`);
     if (ip) {
+      await rconSave(ip);
       await sshExec(ip, backupCommands(name));
     }
     await sendFollowUp(interaction, 'Save complete');

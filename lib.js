@@ -20,6 +20,7 @@ const {
   GetObjectCommand
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
+const { sendRcon } = require('./rcon');
 
 function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
@@ -370,19 +371,24 @@ function backupFilename(name) {
   return `${name}.${currentDateString()}.tar.bz2`;
 }
 
+async function rconSave(ip) {
+  try {
+    const port = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PORT')).trim();
+    const password = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PASSWORD')).trim();
+    await sendRcon(ip, Number(port), password, '/save');
+    log('RCON save sent to', ip);
+  } catch (e) {
+    log('RCON save failed', e.message);
+  }
+}
+
 function backupCommands(name) {
   const file = backupFilename(name);
   const jsonFile = `${name}.${currentDateString()}.json`;
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
-  const rconSave = [
-    'RCON_PORT=$(sudo docker exec factorio printenv RCON_PORT)',
-    'RCON_PASSWORD=$(sudo docker exec factorio printenv RCON_PASSWORD)',
-    'sudo docker run --rm --network container:factorio -e RCON_PORT -e RCON_PASSWORD factoriotools/factorio /opt/factorio/bin/rcon-cli /save'
-  ].join(' && ');
   return (
-    `${rconSave} && ` +
     `sudo docker stop factorio && ` +
     `sudo rm -rf /tmp/${file} &&` +
     `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
@@ -550,6 +556,7 @@ module.exports = {
   waitForInstance,
   sshExec,
   sshAndSetup,
+  rconSave,
   backupCommands,
   listBackups,
   listBackupNames,
