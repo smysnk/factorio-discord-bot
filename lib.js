@@ -20,7 +20,6 @@ const {
   GetObjectCommand
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
-const { sendRcon } = require('./rcon');
 
 function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
@@ -373,9 +372,12 @@ function backupFilename(name) {
 
 async function rconSave(ip) {
   try {
-    const port = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PORT')).trim();
-    const password = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PASSWORD')).trim();
-    await sendRcon(ip, Number(port), password, '/save');
+    const cmd = [
+      'RCON_PORT=$(sudo docker exec factorio printenv RCON_PORT)',
+      'RCON_PASSWORD=$(sudo docker exec factorio printenv RCON_PASSWORD)',
+      'sudo docker run --rm --network container:factorio -e RCON_PORT -e RCON_PASSWORD -e RCON_HOST=localhost itzg/rcon /save'
+    ].join(' && ');
+    await sshExec(ip, cmd);
     log('RCON save sent to', ip);
   } catch (e) {
     log('RCON save failed', e.message);
