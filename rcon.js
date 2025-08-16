@@ -1,4 +1,22 @@
 const net = require('net');
+const cp = require('child_process');
+
+async function waitForPort(port, attempts = 10) {
+  return new Promise((resolve, reject) => {
+    const tryConnect = n => {
+      const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
+        socket.end();
+        resolve();
+      });
+      socket.on('error', err => {
+        socket.destroy();
+        if (n <= 1) return reject(err);
+        setTimeout(() => tryConnect(n - 1), 200);
+      });
+    };
+    tryConnect(attempts);
+  });
+}
 
 function encode(id, type, body) {
   const bodyBuf = Buffer.from(body, 'utf8');
@@ -13,22 +31,41 @@ function encode(id, type, body) {
 }
 
 async function sendRcon(host, port, password, command) {
+  const key = process.env.SSH_KEY_PATH;
+  if (!key) throw new Error('SSH_KEY_PATH not set');
+  const args = [
+    '-i',
+    key,
+    '-o',
+    'StrictHostKeyChecking=no',
+    '-L',
+    `${port}:localhost:${port}`,
+    `ec2-user@${host}`,
+    '-N'
+  ];
+  const tunnel = cp.spawn('ssh', args);
+  tunnel.on('error', err => tunnel.kill());
+  await waitForPort(port);
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host, port }, () => {
+    const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
       socket.write(encode(1, 3, password));
     });
     let authenticated = false;
+    const cleanup = () => {
+      socket.end();
+      tunnel.kill();
+    };
     socket.on('data', data => {
       if (!authenticated) {
         authenticated = true;
         socket.write(encode(2, 2, command));
       } else {
-        socket.end();
+        cleanup();
         resolve(data.toString('utf8', 12, data.length - 2));
       }
     });
     socket.on('error', err => {
-      socket.end();
+      cleanup();
       reject(err);
     });
   });
