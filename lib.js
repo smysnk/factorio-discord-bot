@@ -24,7 +24,13 @@ const { Client: SSHClient } = require('ssh2');
 function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
     const ts = new Date().toISOString();
-    console.log(ts, ...args);
+    const fmt = args.map(a => {
+      if (typeof a === 'string' && !a.startsWith('`') && !a.endsWith('`') && !a.includes(' ')) {
+        return `\`${a}\``;
+      }
+      return a;
+    });
+    console.log(ts, ...fmt);
   }
 }
 
@@ -198,11 +204,20 @@ function connectSSH(ip, attempts = 10) {
   });
 }
 
-async function sshAndSetup(ip, backupFile) {
-  log('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
+async function sshAndSetup(ip, backupFile, version) {
+  log(
+    'Setting up instance',
+    ip,
+    backupFile ? 'with backup ' + backupFile : '',
+    version ? 'version ' + version : ''
+  );
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
-    const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const baseImage = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const lastColon = baseImage.lastIndexOf(':');
+    const repo = lastColon === -1 ? baseImage : baseImage.slice(0, lastColon);
+    const defaultTag = lastColon === -1 ? 'latest' : baseImage.slice(lastColon + 1);
+    const image = `${repo}:${version || defaultTag}`;
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
@@ -291,7 +306,8 @@ async function listBackups() {
     const resp = await s3.send(
       new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
     );
-    return resp.Contents || [];
+    const list = resp.Contents || [];
+    return list.filter(o => !o.Key.endsWith('.json'));
   } catch (err) {
     if (err.Code === 'PermanentRedirect') {
       const region = err.BucketRegion || err.Region;
@@ -310,7 +326,8 @@ async function listBackups() {
       const resp = await s3.send(
         new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
       );
-      return resp.Contents || [];
+      const list = resp.Contents || [];
+      return list.filter(o => !o.Key.endsWith('.json'));
     }
     throw err;
   }
@@ -359,7 +376,13 @@ function backupCommands(name) {
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
+  const rconSave = [
+    'RCON_PORT=$(sudo docker exec factorio printenv RCON_PORT)',
+    'RCON_PASSWORD=$(sudo docker exec factorio printenv RCON_PASSWORD)',
+    'sudo docker run --rm --network container:factorio -e RCON_HOST=127.0.0.1 -e RCON_PORT -e RCON_PASSWORD -e RCON_CMD=/save itzg/rcon'
+  ].join(' && ');
   return (
+    `${rconSave} && ` +
     `sudo docker stop factorio && ` +
     `sudo rm -rf /tmp/${file} &&` +
     `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
