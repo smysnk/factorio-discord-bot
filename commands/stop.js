@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { ec2, state, findRunningInstance, sshExec, backupCommands, TerminateInstancesCommand, DescribeInstancesCommand, sendReply, sendFollowUp, log } = require('../lib');
+const { ec2, state, findRunningInstance, sshExec, rconSave, backupCommands, TerminateInstancesCommand, DescribeInstancesCommand, sendReply, sendFollowUp, log } = require('../lib');
 
 module.exports = {
   data: new SlashCommandBuilder().setName('stop').setDescription('Stop the Factorio server'),
@@ -18,6 +18,7 @@ module.exports = {
     const name = tag ? tag.Value : `backup-${Date.now()}`;
     await sendReply(interaction, `Stopping server and saving as ${name}...`);
     if (ip) {
+      await rconSave(ip);
       await sshExec(ip, backupCommands(name));
     }
     await ec2.send(new TerminateInstancesCommand({ InstanceIds: [inst.InstanceId] }));
