@@ -197,7 +197,7 @@ function connectSSH(ip, attempts = 10) {
         })
         .connect({
           host: ip,
-          username: 'ec2-user',
+          username: process.env.SSH_USER || 'ec2-user',
           privateKey: fs.readFileSync(key),
         });
     };
@@ -550,7 +550,8 @@ const sendFollowUp = (interaction, content, options) => {
   return sendDiscordMessage(interaction, 'followUp', content, options);
 };
 
-module.exports = {
+export {
+
   ec2,
   s3,
   template,
@@ -577,4 +578,5 @@ module.exports = {
   sendReply,
   sendFollowUp,
   log
+
 };

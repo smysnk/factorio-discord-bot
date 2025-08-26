@@ -2,15 +2,20 @@
   "name": "factorio-discord-bot",
   "version": "1.0.0",
   "description": "Discord bot for managing a Factorio server on AWS",
-  "main": "bot.js",
+  "main": "bot.ts",
   "scripts": {
-    "start": "node bot.js"
+    "start": "ts-node bot.ts"
   },
   "dependencies": {
     "discord.js": "^14.13.0",
     "@aws-sdk/client-ec2": "^3.528.0",
     "@aws-sdk/client-s3": "^3.528.0",
     "dotenv": "^16.3.1",
-    "ssh2": "^1.11.0"
+    "ssh2": "^1.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
   }
 }

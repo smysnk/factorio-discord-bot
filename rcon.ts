@@ -41,7 +41,7 @@ async function sendRcon(host, port, password, command) {
     'StrictHostKeyChecking=no',
     '-L',
     `${port}:localhost:${port}`,
-    `ec2-user@${host}`,
+    `${process.env.SSH_USER || 'ec2-user'}@${host}`,
     '-N'
   ];
   const tunnel = cp.spawn('ssh', args);
@@ -72,4 +72,4 @@ async function sendRcon(host, port, password, command) {
   });
 }
 
-module.exports = { sendRcon };
+export { sendRcon };
