@@ -393,7 +393,13 @@ function backupCommands(name) {
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
+  const rconSave = [
+    'RCON_PORT=$(sudo docker exec factorio printenv RCON_PORT)',
+    'RCON_PASSWORD=$(sudo docker exec factorio printenv RCON_PASSWORD)',
+    'sudo docker run --rm --network container:factorio -e RCON_HOST=127.0.0.1 -e RCON_PORT -e RCON_PASSWORD -e RCON_CMD=/save itzg/rcon'
+  ].join(' && ');
   return (
+    `${rconSave} && ` +
     `sudo docker stop factorio && ` +
     `sudo rm -rf /tmp/${file} &&` +
     `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
