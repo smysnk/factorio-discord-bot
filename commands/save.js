@@ -54,7 +54,7 @@ module.exports = {
     }
     await sendReply(interaction, `Saving as \`${name}\`...`);
     if (ip) {
-      await rconSave(ip);
+      // await rconSave(ip);
       await sshExec(ip, backupCommands(name));
     }
     await sendFollowUp(interaction, 'Save complete');
