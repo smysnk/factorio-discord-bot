@@ -20,11 +20,18 @@ const {
   GetObjectCommand
 } = require('@aws-sdk/client-s3');
 const { Client: SSHClient } = require('ssh2');
+const { sendRcon } = require('./rcon');
 
 function log(...args) {
   if (process.env.DEBUG_LOG === '1' || process.env.DEBUG_LOG === 'true') {
     const ts = new Date().toISOString();
-    console.log(ts, ...args);
+    const fmt = args.map(a => {
+      if (typeof a === 'string' && !a.startsWith('`') && !a.endsWith('`') && !a.includes(' ')) {
+        return `\`${a}\``;
+      }
+      return a;
+    });
+    console.log(ts, ...fmt);
   }
 }
 
@@ -198,11 +205,20 @@ function connectSSH(ip, attempts = 10) {
   });
 }
 
-async function sshAndSetup(ip, backupFile) {
-  log('Setting up instance', ip, backupFile ? 'with backup '+backupFile : '');
+async function sshAndSetup(ip, backupFile, version) {
+  log(
+    'Setting up instance',
+    ip,
+    backupFile ? 'with backup ' + backupFile : '',
+    version ? 'version ' + version : ''
+  );
   const ssh = await connectSSH(ip);
   return new Promise((resolve, reject) => {
-    const image = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const baseImage = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
+    const lastColon = baseImage.lastIndexOf(':');
+    const repo = lastColon === -1 ? baseImage : baseImage.slice(0, lastColon);
+    const defaultTag = lastColon === -1 ? 'latest' : baseImage.slice(lastColon + 1);
+    const image = `${repo}:${version || defaultTag}`;
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
@@ -210,7 +226,7 @@ async function sshAndSetup(ip, backupFile) {
       'sudo yum install -y docker',
       'sudo service docker start',
       'sudo mkdir -p /opt/factorio',
-      'sudo dd if=/dev/zero of=/swapfile bs=1M count=1024',
+      'sudo dd if=/dev/zero of=/swapfile bs=1M count=2048',
       'sudo chmod 600 /swapfile',
       'sudo mkswap /swapfile',
       'sudo swapon /swapfile',
@@ -296,7 +312,8 @@ async function listBackups() {
     const resp = await s3.send(
       new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
     );
-    return resp.Contents || [];
+    const list = resp.Contents || [];
+    return list.filter(o => !o.Key.endsWith('.json'));
   } catch (err) {
     if (err.Code === 'PermanentRedirect') {
       const region = err.BucketRegion || err.Region;
@@ -315,7 +332,8 @@ async function listBackups() {
       const resp = await s3.send(
         new ListObjectsV2Command({ Bucket: process.env.BACKUP_BUCKET })
       );
-      return resp.Contents || [];
+      const list = resp.Contents || [];
+      return list.filter(o => !o.Key.endsWith('.json'));
     }
     throw err;
   }
@@ -356,6 +374,17 @@ function currentDateString() {
 
 function backupFilename(name) {
   return `${name}.${currentDateString()}.tar.bz2`;
+}
+
+async function rconSave(ip) {
+  try {
+    const port = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PORT')).trim();
+    const password = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PASSWORD')).trim();
+    await sendRcon(ip, Number(port), password, '/save');
+    log('RCON save sent to', ip);
+  } catch (e) {
+    log('RCON save failed', e.message);
+  }
 }
 
 function backupCommands(name) {
@@ -532,6 +561,7 @@ module.exports = {
   waitForInstance,
   sshExec,
   sshAndSetup,
+  rconSave,
   backupCommands,
   listBackups,
   listBackupNames,
