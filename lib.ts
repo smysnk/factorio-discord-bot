@@ -19,7 +19,7 @@ const {
   GetBucketLocationCommand,
   GetObjectCommand
 } = require('@aws-sdk/client-s3');
-const { Client: SSHClient } = require('ssh2');
+import { Client as SSHClient } from 'ssh2';
 const { sendRcon } = require('./rcon');
 
 function log(...args) {
@@ -73,7 +73,7 @@ async function findRunningInstance() {
     { Name: 'instance-state-name', Values: ['pending', 'running'] }
   ];
   for (const [k, v] of Object.entries(template.tags)) {
-    filters.push({ Name: `tag:${k}`, Values: [v] });
+    filters.push({ Name: `tag:${k}`, Values: [String(v)] });
   }
   const resp = await ec2.send(new DescribeInstancesCommand({ Filters: filters }));
   for (const res of resp.Reservations || []) {
@@ -168,7 +168,7 @@ async function waitForInstance(id) {
 
 function waitForPing(ip) {
   log('Waiting for ping on', ip);
-  return new Promise(resolve => {
+  return new Promise<void>(resolve => {
     const check = () => {
       cp.exec(`ping -c 1 ${ip}`, err => {
         if (!err) return resolve();
@@ -180,12 +180,12 @@ function waitForPing(ip) {
 }
 
 function connectSSH(ip, attempts = 10) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise<SSHClient>(async (resolve, reject) => {
     const key = process.env.SSH_KEY_PATH;
     if (!key) return reject(new Error('SSH_KEY_PATH not set'));
     await waitForPing(ip);
     log('Connecting via SSH to', ip);
-    const tryConnect = n => {
+    const tryConnect = (n: number) => {
       const ssh = new SSHClient();
       ssh
         .on('ready', () => resolve(ssh))
@@ -213,7 +213,7 @@ async function sshAndSetup(ip, backupFile, version) {
     version ? 'version ' + version : ''
   );
   const ssh = await connectSSH(ip);
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const baseImage = process.env.DOCKER_IMAGE || 'factoriotools/factorio:latest';
     const lastColon = baseImage.lastIndexOf(':');
     const repo = lastColon === -1 ? baseImage : baseImage.slice(0, lastColon);
@@ -275,7 +275,7 @@ async function sshAndSetup(ip, backupFile, version) {
 async function sshExec(ip, command) {
   log('sshExec', ip, command);
   const ssh = await connectSSH(ip);
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let out = '';
     let exitCode = 0;
     ssh.exec(command, (err, stream) => {
@@ -426,7 +426,11 @@ async function getLatestBackupFile(name) {
   const filtered = objects
     .map(o => ({ meta: parseBackupKey(o.Key), obj: o }))
     .filter(x => x.meta && x.meta.name === name)
-    .sort((a, b) => new Date(b.obj.LastModified) - new Date(a.obj.LastModified));
+    .sort(
+      (a, b) =>
+        new Date(b.obj.LastModified ?? 0).getTime() -
+        new Date(a.obj.LastModified ?? 0).getTime()
+    );
   return filtered.length ? filtered[0].obj.Key : null;
 }
 
@@ -466,7 +470,9 @@ function formatBackupTree(objects) {
   return '```\n' + lines.join('\n') + '\n```';
 }
 
-  async function getSystemStats(ip) {
+type SystemStats = { load?: string; memory?: string; disk?: string };
+
+async function getSystemStats(ip: string): Promise<SystemStats> {
   try {
     log('Gathering system stats from', ip);
     const load = await sshExec(ip, 'cat /proc/loadavg');
@@ -478,14 +484,18 @@ function formatBackupTree(objects) {
       ip,
       `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
     );
-    const result = { load: load.split(' ').slice(0,3).join(' '), memory: mem.trim(), disk: disk.trim() };
+    const result: SystemStats = {
+      load: load.split(' ').slice(0, 3).join(' '),
+      memory: mem.trim(),
+      disk: disk.trim()
+    };
     log('Stats', result);
     return result;
-  } catch (e) {
+  } catch (e: any) {
     log('Failed to get stats', e.message);
     return {};
   }
-  }
+}
 
 async function streamToString(stream) {
   const chunks = [];
@@ -534,7 +544,7 @@ async function sendDiscordMessage(interaction, method, content, options = {}) {
   }
 }
 
-function sendReply(interaction, content, options) {
+function sendReply(interaction, content, options?) {
   let method = 'reply';
   if (interaction.deferred && !interaction.replied) {
     method = 'editReply';
@@ -545,7 +555,7 @@ function sendReply(interaction, content, options) {
   return sendDiscordMessage(interaction, method, content, options);
 }
 
-const sendFollowUp = (interaction, content, options) => {
+const sendFollowUp = (interaction, content, options?) => {
   log('sendFollowUp');
   return sendDiscordMessage(interaction, 'followUp', content, options);
 };

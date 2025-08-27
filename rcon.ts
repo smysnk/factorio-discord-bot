@@ -3,7 +3,7 @@ const net = require('net');
 const cp = require('child_process');
 
 async function waitForPort(port, attempts = 10) {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const tryConnect = n => {
       const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
         socket.end();
