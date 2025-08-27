@@ -3,7 +3,7 @@ const net = require('net');
 const cp = require('child_process');
 
 async function waitForPort(port, attempts = 10) {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const tryConnect = n => {
       const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
         socket.end();
@@ -41,7 +41,7 @@ async function sendRcon(host, port, password, command) {
     'StrictHostKeyChecking=no',
     '-L',
     `${port}:localhost:${port}`,
-    `ec2-user@${host}`,
+    `${process.env.SSH_USER || 'ec2-user'}@${host}`,
     '-N'
   ];
   const tunnel = cp.spawn('ssh', args);
@@ -72,4 +72,4 @@ async function sendRcon(host, port, password, command) {
   });
 }
 
-module.exports = { sendRcon };
+export { sendRcon };
