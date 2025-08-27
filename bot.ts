@@ -45,9 +45,12 @@ export class Bot implements BotCommandInterface {
     });
 
     this.client.on(Events.InteractionCreate, async interaction => {
+      if (!interaction.isChatInputCommand() && !interaction.isAutocomplete()) return;
       if (interaction.channelId !== channelId) return;
-      log('Received interaction', interaction.commandName);
-      const command = this.commands.get(interaction.commandName);
+
+      const { commandName } = interaction;
+      log('Received interaction', commandName);
+      const command = this.commands.get(commandName);
       if (!command) return;
 
       if (interaction.isAutocomplete()) {
@@ -57,11 +60,9 @@ export class Bot implements BotCommandInterface {
         return;
       }
 
-      if (!interaction.isChatInputCommand()) return;
-
       try {
         await command.execute(interaction, this);
-        log('Command executed', interaction.commandName);
+        log('Command executed', commandName);
       } catch (err: any) {
         console.error(err);
         log('Interaction error', err.message);

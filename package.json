@@ -5,7 +5,7 @@
   "main": "bot.ts",
   "scripts": {
     "start": "ts-node bot.ts",
-    "dev": "ts-node --watch bot.ts"
+    "dev": "ts-node-dev --respawn bot.ts"
   },
   "dependencies": {
     "discord.js": "^14.13.0",
@@ -17,6 +17,7 @@
     "typescript": "^5.3.3"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "ts-node-dev": "^2.0.0"
   }
 }
