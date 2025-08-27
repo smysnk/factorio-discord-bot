@@ -25,6 +25,12 @@ npm install
 npm start
 ```
 
+For development with automatic reload on file changes, use:
+
+```bash
+npm run dev
+```
+
 The bot uses slash commands which are registered automatically on startup. Use
 `/start` to launch the server, optionally selecting a prior backup name to
 restore. The `/save` and `/stop` commands create a dated archive and player data
