@@ -222,16 +222,29 @@ async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
-    const cmds = [...initCmds];
+    const safeBackup = (backupFile
+      ? backupFile.split('/').pop().replace(/\.tar\.bz2$/, '')
+      : 'factorio'
+    ).replace(/[^a-zA-Z0-9_-]/g, '-');
+    const dateStr = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .replace('T', '-')
+      .replace('Z', '');
+    const dataDir = `/opt/factorio-${safeBackup}-${dateStr}`;
+    const cmds = [...initCmds, `sudo mkdir -p ${dataDir}`];
     if (backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
       const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
       cmds.push(
-        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} - | sudo tar xj -C /opt`
+        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} - | sudo tar xj --strip-components=1 -C ${dataDir}`
       );
     }
     cmds.push(
-      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
+      `sudo ln -sfn ${dataDir} /opt/factorio`
+    );
+    cmds.push(
+      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v ${dataDir}:/factorio ${image}`
     );
     const cmd = cmds.join(' && ');
     ssh.exec(cmd, (err, stream) => {
