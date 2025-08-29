@@ -49,7 +49,7 @@ const awsConfig = {
 const ec2 = new EC2Client(awsConfig);
 let s3 = new S3Client(awsConfig);
 
-const state = { instanceId: null };
+const state = { instanceId: null as string | null, containerName: 'factorio' };
 
 async function ensureBucketRegion() {
   if (!awsConfig.region) {
@@ -231,7 +231,9 @@ async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
       .replace(/[:.]/g, '-')
       .replace('T', '-')
       .replace('Z', '');
-    const dataDir = `/opt/factorio-${safeBackup}-${dateStr}`;
+    const containerName = `factorio-${safeBackup}-${dateStr}`;
+    state.containerName = containerName;
+    const dataDir = `/opt/${containerName}`;
     const cmds = [...initCmds, `sudo mkdir -p ${dataDir}`];
     if (backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
@@ -241,7 +243,7 @@ async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
       );
     }
     cmds.push(
-      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v ${dataDir}:/factorio ${image}`
+      `sudo docker run -d --name ${containerName} --restart unless-stopped --pull always ${ports} -v ${dataDir}:/factorio ${image}`
     );
     const cmd = cmds.join(' && ');
     ssh.exec(cmd, (err, stream) => {
@@ -377,10 +379,10 @@ function backupFilename(name) {
   return `${name}.${currentDateString()}.tar.bz2`;
 }
 
-async function rconSave(ip) {
+async function rconSave(ip, container = state.containerName) {
   try {
-    const port = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PORT')).trim();
-    const password = (await sshExec(ip, 'sudo docker exec factorio printenv RCON_PASSWORD')).trim();
+    const port = (await sshExec(ip, `sudo docker exec ${container} printenv RCON_PORT`)).trim();
+    const password = (await sshExec(ip, `sudo docker exec ${container} printenv RCON_PASSWORD`)).trim();
     await sendRcon(ip, Number(port), password, '/save');
     log('RCON save sent to', ip);
   } catch (e) {
@@ -388,22 +390,22 @@ async function rconSave(ip) {
   }
 }
 
-function backupCommands(name) {
+function backupCommands(name, container = state.containerName) {
   const file = backupFilename(name);
   const jsonFile = `${name}.${currentDateString()}.json`;
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
   const inspect =
-    "sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}'";
+    `sudo docker inspect ${container} --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}'`;
   return (
     `MOUNT=$(${inspect}) && ` +
-    `sudo docker stop factorio && ` +
+    `sudo docker stop ${container} && ` +
     `sudo rm -rf /tmp/${file} && ` +
     `sudo tar cjf /tmp/${file} -C $MOUNT . && ` +
     `${creds} aws s3 cp $MOUNT/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
-    `sudo rm /tmp/${file} && sudo docker start factorio`
+    `sudo rm /tmp/${file} && sudo docker start ${container}`
   );
 }
 
@@ -485,7 +487,7 @@ async function getSystemStats(ip: string): Promise<SystemStats> {
       `free -m | awk '/Mem:/ {print $3"/"$2" MB"}'`
     );
     const inspectDisk =
-      "MOUNT=$(sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}') && (df -h $MOUNT 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3\"/\"$2\" used\"}'";
+      `MOUNT=$(sudo docker inspect ${state.containerName} --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}') && (df -h $MOUNT 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3\"/\"$2\" used\"}'`;
     const disk = await sshExec(ip, inspectDisk);
     const result: SystemStats = {
       load: load.split(' ').slice(0, 3).join(' '),

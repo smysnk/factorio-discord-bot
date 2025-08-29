@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction } from 'discord.js';
 import { ProviderStrategy } from './ProviderStrategy';
-import { sshExec, sshAndSetup, sendReply, sendFollowUp, rconSave, backupCommands, getSystemStats, formatMetadata, getLatestBackupFile, log } from '../lib';
+import { sshExec, sshAndSetup, sendReply, sendFollowUp, rconSave, backupCommands, getSystemStats, formatMetadata, getLatestBackupFile, log, state } from '../lib';
 
 export class BareMetalProviderStrategy implements ProviderStrategy {
   constructor(private ip: string) {}
@@ -34,7 +34,7 @@ export class BareMetalProviderStrategy implements ProviderStrategy {
     const name = `backup-${Date.now()}`;
     await sendReply(interaction, `Stopping server and saving as ${name}...`);
     await rconSave(this.ip);
-    await sshExec(this.ip, `${backupCommands(name)} && sudo docker stop factorio`);
+    await sshExec(this.ip, `${backupCommands(name)} && sudo docker stop ${state.containerName}`);
     await sendFollowUp(interaction, 'Server stopped');
   }
 
