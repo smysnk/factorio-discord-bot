@@ -55,7 +55,17 @@ export class AwsProviderStrategy implements ProviderStrategy {
         backupFile ? `, restoring backup \`${backup}\`...` : ', installing docker...'
       }`
     );
-    await sshAndSetup(ec2Ip, backupFile, version || undefined);
+    const cmds = [
+      'sudo yum install -y docker',
+      'sudo service docker start',
+      'sudo mkdir -p /opt/factorio',
+      'sudo dd if=/dev/zero of=/swapfile bs=1M count=2048',
+      'sudo chmod 600 /swapfile',
+      'sudo mkswap /swapfile',
+      'sudo swapon /swapfile',
+      'echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab'
+    ];
+    await sshAndSetup(ec2Ip, backupFile, version || undefined, cmds);
     await sendFollowUp(interaction, `Factorio server running at \`${ec2Ip}\``);
   }
 

@@ -205,7 +205,7 @@ function connectSSH(ip, attempts = 10) {
   });
 }
 
-async function sshAndSetup(ip, backupFile, version) {
+async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
   log(
     'Setting up instance',
     ip,
@@ -222,16 +222,7 @@ async function sshAndSetup(ip, backupFile, version) {
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
-    const cmds = [
-      'sudo yum install -y docker',
-      'sudo service docker start',
-      'sudo mkdir -p /opt/factorio',
-      'sudo dd if=/dev/zero of=/swapfile bs=1M count=2048',
-      'sudo chmod 600 /swapfile',
-      'sudo mkswap /swapfile',
-      'sudo swapon /swapfile',
-      'echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab'
-    ];
+    const cmds = [...initCmds];
     if (backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
       const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
