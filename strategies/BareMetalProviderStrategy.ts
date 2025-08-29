@@ -44,7 +44,7 @@ export class BareMetalProviderStrategy implements ProviderStrategy {
       'IP Address': this.ip,
       Load: stats.load,
       Memory: stats.memory,
-      'Disk /opt/factorio': stats.disk,
+      'Disk factorio data': stats.disk,
     };
     const table = formatMetadata(meta);
     await sendReply(interaction, table || 'No data');

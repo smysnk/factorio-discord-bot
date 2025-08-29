@@ -107,7 +107,7 @@ export class AwsProviderStrategy implements ProviderStrategy {
         'Open Ports': (template.ingress_ports || []).join(', '),
         Load: (stats as any).load,
         Memory: (stats as any).memory,
-        'Disk /opt/factorio': (stats as any).disk,
+        'Disk factorio data': (stats as any).disk,
       };
       const table = formatMetadata(meta);
       await sendReply(interaction, table || 'No data');

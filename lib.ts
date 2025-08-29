@@ -241,9 +241,6 @@ async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
       );
     }
     cmds.push(
-      `sudo ln -sfn ${dataDir} /opt/factorio`
-    );
-    cmds.push(
       `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v ${dataDir}:/factorio ${image}`
     );
     const cmd = cmds.join(' && ');
@@ -397,11 +394,14 @@ function backupCommands(name) {
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
+  const inspect =
+    "sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}'";
   return (
+    `MOUNT=$(${inspect}) && ` +
     `sudo docker stop factorio && ` +
-    `sudo rm -rf /tmp/${file} &&` +
-    `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
-    `${creds} aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
+    `sudo rm -rf /tmp/${file} && ` +
+    `sudo tar cjf /tmp/${file} -C $MOUNT . && ` +
+    `${creds} aws s3 cp $MOUNT/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
     `sudo rm /tmp/${file} && sudo docker start factorio`
   );
@@ -484,10 +484,9 @@ async function getSystemStats(ip: string): Promise<SystemStats> {
       ip,
       `free -m | awk '/Mem:/ {print $3"/"$2" MB"}'`
     );
-    const disk = await sshExec(
-      ip,
-      `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
-    );
+    const inspectDisk =
+      "MOUNT=$(sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}') && (df -h $MOUNT 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3\"/\"$2\" used\"}'";
+    const disk = await sshExec(ip, inspectDisk);
     const result: SystemStats = {
       load: load.split(' ').slice(0, 3).join(' '),
       memory: mem.trim(),
