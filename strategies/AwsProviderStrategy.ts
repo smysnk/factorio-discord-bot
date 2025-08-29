@@ -55,7 +55,16 @@ export class AwsProviderStrategy implements ProviderStrategy {
         backupFile ? `, restoring backup \`${backup}\`...` : ', installing docker...'
       }`
     );
-    await sshAndSetup(ec2Ip, backupFile, version || undefined);
+    const cmds = [
+      'sudo yum install -y docker',
+      'sudo service docker start',
+      'sudo dd if=/dev/zero of=/swapfile bs=1M count=2048',
+      'sudo chmod 600 /swapfile',
+      'sudo mkswap /swapfile',
+      'sudo swapon /swapfile',
+      'echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab'
+    ];
+    await sshAndSetup(ec2Ip, backupFile, version || undefined, cmds);
     await sendFollowUp(interaction, `Factorio server running at \`${ec2Ip}\``);
   }
 
@@ -98,7 +107,7 @@ export class AwsProviderStrategy implements ProviderStrategy {
         'Open Ports': (template.ingress_ports || []).join(', '),
         Load: (stats as any).load,
         Memory: (stats as any).memory,
-        'Disk /opt/factorio': (stats as any).disk,
+        'Disk factorio data': (stats as any).disk,
       };
       const table = formatMetadata(meta);
       await sendReply(interaction, table || 'No data');

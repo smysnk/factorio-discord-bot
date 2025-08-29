@@ -205,7 +205,7 @@ function connectSSH(ip, attempts = 10) {
   });
 }
 
-async function sshAndSetup(ip, backupFile, version) {
+async function sshAndSetup(ip, backupFile, version, initCmds: string[] = []) {
   log(
     'Setting up instance',
     ip,
@@ -222,25 +222,26 @@ async function sshAndSetup(ip, backupFile, version) {
     const ports = (template.ingress_ports || [])
       .map(p => `-p ${p}:${p}/udp`)
       .join(' ');
-    const cmds = [
-      'sudo yum install -y docker',
-      'sudo service docker start',
-      'sudo mkdir -p /opt/factorio',
-      'sudo dd if=/dev/zero of=/swapfile bs=1M count=2048',
-      'sudo chmod 600 /swapfile',
-      'sudo mkswap /swapfile',
-      'sudo swapon /swapfile',
-      'echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab'
-    ];
+    const safeBackup = (backupFile
+      ? backupFile.split('/').pop().replace(/\.tar\.bz2$/, '')
+      : 'factorio'
+    ).replace(/[^a-zA-Z0-9_-]/g, '-');
+    const dateStr = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .replace('T', '-')
+      .replace('Z', '');
+    const dataDir = `/opt/factorio-${safeBackup}-${dateStr}`;
+    const cmds = [...initCmds, `sudo mkdir -p ${dataDir}`];
     if (backupFile) {
       const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
       const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
       cmds.push(
-        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} - | sudo tar xj -C /opt`
+        `${creds} aws s3 cp s3://${process.env.BACKUP_BUCKET}/${backupFile}${regionFlag} - | sudo tar xj --strip-components=1 -C ${dataDir}`
       );
     }
     cmds.push(
-      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v /opt/factorio:/factorio ${image}`
+      `sudo docker run -d --name factorio --restart unless-stopped --pull always ${ports} -v ${dataDir}:/factorio ${image}`
     );
     const cmd = cmds.join(' && ');
     ssh.exec(cmd, (err, stream) => {
@@ -393,11 +394,14 @@ function backupCommands(name) {
   const regionFlag = process.env.AWS_REGION ? ` --region ${process.env.AWS_REGION}` : '';
   const creds = `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`;
   log('Backup command for', name);
+  const inspect =
+    "sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}'";
   return (
+    `MOUNT=$(${inspect}) && ` +
     `sudo docker stop factorio && ` +
-    `sudo rm -rf /tmp/${file} &&` +
-    `sudo tar cjf /tmp/${file} -C /opt factorio &&` +
-    `${creds} aws s3 cp /opt/factorio/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
+    `sudo rm -rf /tmp/${file} && ` +
+    `sudo tar cjf /tmp/${file} -C $MOUNT . && ` +
+    `${creds} aws s3 cp $MOUNT/player-data.json s3://${process.env.BACKUP_BUCKET}/${jsonFile}${regionFlag} && ` +
     `${creds} aws s3 cp /tmp/${file} s3://${process.env.BACKUP_BUCKET}/${file}${regionFlag} && ` +
     `sudo rm /tmp/${file} && sudo docker start factorio`
   );
@@ -480,10 +484,9 @@ async function getSystemStats(ip: string): Promise<SystemStats> {
       ip,
       `free -m | awk '/Mem:/ {print $3"/"$2" MB"}'`
     );
-    const disk = await sshExec(
-      ip,
-      `(df -h /opt/factorio 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3"/"$2" used"}'`
-    );
+    const inspectDisk =
+      "MOUNT=$(sudo docker inspect factorio --format '{{ range .Mounts }}{{ if eq .Destination \"/factorio\" }}{{ .Source }}{{ end }}{{ end }}') && (df -h $MOUNT 2>/dev/null || df -h / 2>/dev/null) | tail -1 | awk '{print $3\"/\"$2\" used\"}'";
+    const disk = await sshExec(ip, inspectDisk);
     const result: SystemStats = {
       load: load.split(' ').slice(0, 3).join(' '),
       memory: mem.trim(),
